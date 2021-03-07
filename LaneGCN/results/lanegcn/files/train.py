@@ -12,12 +12,12 @@ import argparse
 import numpy as np
 import random
 import sys
-sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 import time
 import shutil
 from importlib import import_module
+import lanegcn as model
 from numbers import Number
-
+sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 from tqdm import tqdm
 import torch
 from torch.utils.data import Sampler, DataLoader
@@ -145,7 +145,7 @@ def main():
     )
 
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(ocdpt.opt, root_rank=0)
+    hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
 
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))

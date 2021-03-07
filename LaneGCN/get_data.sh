@@ -21,9 +21,9 @@ tar xvf forecasting_test_v1.1.tar.gz
 # step3: preprocess data to accelerate training
 
 # STEP3-Option1: preprocess data locally, it's very slow, will take a few hours
-python preprocess_data.py -m lanegcn
+# python preprocess_data.py -m lanegcn
 
 # STEP3-Option2: Download from my digitalocean space
-# wget https://yun.sfo2.cdn.digitaloceanspaces.com/public/lanegcn/test_test.p
-# wget https://yun.sfo2.cdn.digitaloceanspaces.com/public/lanegcn/train_crs_dist6_angle90.p
-# wget https://yun.sfo2.cdn.digitaloceanspaces.com/public/lanegcn/val_crs_dist6_angle90.p
+wget https://yun.sfo2.cdn.digitaloceanspaces.com/public/lanegcn/test_test.p
+wget https://yun.sfo2.cdn.digitaloceanspaces.com/public/lanegcn/train_crs_dist6_angle90.p
+wget https://yun.sfo2.cdn.digitaloceanspaces.com/public/lanegcn/val_crs_dist6_angle90.p
