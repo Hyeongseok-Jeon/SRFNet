@@ -17,7 +17,7 @@ class ArgoDataset(Dataset):
     def __init__(self, split, config, train=True):
         self.config = config
         self.train = train
-        
+
         if 'preprocess' in config and config['preprocess']:
             if train:
                 self.split = np.load(self.config['preprocess_train'], allow_pickle=True)
@@ -28,9 +28,9 @@ class ArgoDataset(Dataset):
             self.am = ArgoverseMap()
 
         if 'raster' in config and config['raster']:
-            #TODO: DELETE
+            # TODO: DELETE
             self.map_query = MapQuery(config['map_scale'])
-            
+
     def __getitem__(self, idx):
         if 'preprocess' in self.config and self.config['preprocess']:
             data = self.split[idx]
@@ -41,7 +41,7 @@ class ArgoDataset(Dataset):
                     if key in data:
                         new_data[key] = ref_copy(data[key])
 
-                dt = np.random.rand() * self.config['rot_size']#np.pi * 2.0
+                dt = np.random.rand() * self.config['rot_size']  # np.pi * 2.0
                 theta = data['theta'] + dt
                 new_data['theta'] = theta
                 new_data['rot'] = np.asarray([
@@ -68,16 +68,17 @@ class ArgoDataset(Dataset):
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = new_data
-           
+
             if 'raster' in self.config and self.config['raster']:
                 data.pop('graph')
                 x_min, x_max, y_min, y_max = self.config['pred_range']
                 cx, cy = data['orig']
-                
+
                 region = [cx + x_min, cx + x_max, cy + y_min, cy + y_max]
                 raster = self.map_query.query(region, data['theta'], data['city'])
 
                 data['raster'] = raster
+            data = self.get_ctrs_idx(data)
             return data
 
         data = self.read_argo_data(idx)
@@ -96,7 +97,7 @@ class ArgoDataset(Dataset):
 
         data['graph'] = self.get_lane_graph(data)
         return data
-    
+
     def __len__(self):
         if 'preprocess' in self.config and self.config['preprocess']:
             return len(self.split)
@@ -108,7 +109,7 @@ class ArgoDataset(Dataset):
 
         """TIMESTAMP,TRACK_ID,OBJECT_TYPE,X,Y,CITY_NAME"""
         df = copy.deepcopy(self.avl[idx].seq_df)
-        
+
         agt_ts = np.sort(np.unique(df['TIMESTAMP'].values))
         mapping = dict()
         for i, ts in enumerate(agt_ts):
@@ -117,7 +118,7 @@ class ArgoDataset(Dataset):
         trajs = np.concatenate((
             df.X.to_numpy().reshape(-1, 1),
             df.Y.to_numpy().reshape(-1, 1)), 1)
-        
+
         steps = [mapping[x] for x in df['TIMESTAMP'].values]
         steps = np.asarray(steps, np.int64)
 
@@ -137,7 +138,7 @@ class ArgoDataset(Dataset):
         agt_step = steps[idcs]
 
         del keys[av_idx]
-        del keys[agt_idx-1]
+        del keys[agt_idx - 1]
         ctx_trajs, ctx_steps = [], []
         for key in keys:
             idcs = objs[key]
@@ -149,7 +150,7 @@ class ArgoDataset(Dataset):
         data['trajs'] = [av_traj] + [agt_traj] + ctx_trajs
         data['steps'] = [av_step] + [agt_step] + ctx_steps
         return data
-    
+
     def get_obj_feats(self, data):
         orig = data['trajs'][0][19].copy().astype(np.float32)
 
@@ -175,14 +176,14 @@ class ArgoDataset(Dataset):
             post_traj = traj[future_mask]
             gt_pred[post_step] = post_traj
             has_pred[post_step] = 1
-            
+
             obs_mask = step < 20
             step = step[obs_mask]
             traj = traj[obs_mask]
             idcs = step.argsort()
             step = step[idcs]
             traj = traj[idcs]
-            
+
             for i in range(len(step)):
                 if step[i] == 19 - (len(step) - 1) + i:
                     break
@@ -218,14 +219,13 @@ class ArgoDataset(Dataset):
         data['has_preds'] = has_preds
         return data
 
- 
     def get_lane_graph(self, data):
         """Get a rectangle area defined by pred_range."""
         x_min, x_max, y_min, y_max = self.config['pred_range']
         radius = max(abs(x_min), abs(x_max)) + max(abs(y_min), abs(y_max))
         lane_ids = self.am.get_lane_ids_in_xy_bbox(data['orig'][0], data['orig'][1], data['city'], radius)
         lane_ids = copy.deepcopy(lane_ids)
-        
+
         lanes = dict()
         for lane_id in lane_ids:
             lane = self.am.city_lane_centerlines_dict[data['city']][lane_id]
@@ -241,17 +241,17 @@ class ArgoDataset(Dataset):
                 lane.centerline = centerline
                 lane.polygon = np.matmul(data['rot'], (polygon[:, :2] - data['orig'].reshape(-1, 2)).T).T
                 lanes[lane_id] = lane
-            
+
         lane_ids = list(lanes.keys())
         ctrs, feats, turn, control, intersect = [], [], [], [], []
         for lane_id in lane_ids:
             lane = lanes[lane_id]
             ctrln = lane.centerline
             num_segs = len(ctrln) - 1
-            
+
             ctrs.append(np.asarray((ctrln[:-1] + ctrln[1:]) / 2.0, np.float32))
             feats.append(np.asarray(ctrln[1:] - ctrln[:-1], np.float32))
-            
+
             x = np.zeros((num_segs, 2), np.float32)
             if lane.turn_direction == 'LEFT':
                 x[:, 0] = 1
@@ -263,21 +263,21 @@ class ArgoDataset(Dataset):
 
             control.append(lane.has_traffic_control * np.ones(num_segs, np.float32))
             intersect.append(lane.is_intersection * np.ones(num_segs, np.float32))
-            
+
         node_idcs = []
         count = 0
         for i, ctr in enumerate(ctrs):
             node_idcs.append(range(count, count + len(ctr)))
             count += len(ctr)
         num_nodes = count
-        
+
         pre, suc = dict(), dict()
         for key in ['u', 'v']:
             pre[key], suc[key] = [], []
         for i, lane_id in enumerate(lane_ids):
             lane = lanes[lane_id]
             idcs = node_idcs[i]
-            
+
             pre['u'] += idcs[1:]
             pre['v'] += idcs[:-1]
             if lane.predecessors is not None:
@@ -286,7 +286,7 @@ class ArgoDataset(Dataset):
                         j = lane_ids.index(nbr_id)
                         pre['u'].append(idcs[0])
                         pre['v'].append(node_idcs[j][-1])
-                    
+
             suc['u'] += idcs[:-1]
             suc['v'] += idcs[1:]
             if lane.successors is not None:
@@ -334,7 +334,7 @@ class ArgoDataset(Dataset):
         suc_pairs = np.asarray(suc_pairs, np.int64)
         left_pairs = np.asarray(left_pairs, np.int64)
         right_pairs = np.asarray(right_pairs, np.int64)
-                    
+
         graph = dict()
         graph['ctrs'] = np.concatenate(ctrs, 0)
         graph['num_nodes'] = num_nodes
@@ -349,14 +349,14 @@ class ArgoDataset(Dataset):
         graph['suc_pairs'] = suc_pairs
         graph['left_pairs'] = left_pairs
         graph['right_pairs'] = right_pairs
-        
+
         for k1 in ['pre', 'suc']:
             for k2 in ['u', 'v']:
                 graph[k1][0][k2] = np.asarray(graph[k1][0][k2], np.int64)
-        
+
         for key in ['pre', 'suc']:
             if 'scales' in self.config and self.config['scales']:
-                #TODO: delete here
+                # TODO: delete here
                 graph[key] += dilated_nbrs2(graph[key][0], graph['num_nodes'], self.config['scales'])
             else:
                 graph[key] += dilated_nbrs(graph[key][0], graph['num_nodes'], self.config['num_scales'])
@@ -364,8 +364,18 @@ class ArgoDataset(Dataset):
 
     def get_ctrs_idx(self, data):
         ctrs_list = data['graph']['ctrs']
-        nearest_ctrs_hist = np.zeros_like(data['feats'])[:,:,0]
+        nearest_ctrs_hist = np.zeros_like(data['feats'])[:, :, 0]
+        traj = np.zeros_like(data['feats'])[:, :, :2]
+        traj[:, -1, :] = data['ctrs']
+        for i in range(19):
+            traj[:,-2-i, :] = traj[:, -i-1,:] - data['feats'][:, -i - 1,:2]
+        for i in range(20):
+            for j in range(traj.shape[0]):
+                ref_pos = traj[j,i,:]
+                nearest_ctrs_hist[j,i] = np.argmin(np.linalg.norm(ctrs_list - ref_pos, axis=1))
 
+        data['nearest_ctrs_hist'] = nearest_ctrs_hist
+        return data
 
 
 class ArgoTestDataset(ArgoDataset):
@@ -373,8 +383,8 @@ class ArgoTestDataset(ArgoDataset):
 
         self.config = config
         self.train = train
-        split2 = config['val_split'] if split=='val' else config['test_split']
-        split = self.config['preprocess_val'] if split=='val' else self.config['preprocess_test']
+        split2 = config['val_split'] if split == 'val' else config['test_split']
+        split = self.config['preprocess_val'] if split == 'val' else self.config['preprocess_test']
 
         self.avl = ArgoverseForecastingLoader(split2)
         if 'preprocess' in config and config['preprocess']:
@@ -385,20 +395,19 @@ class ArgoTestDataset(ArgoDataset):
         else:
             self.avl = ArgoverseForecastingLoader(split)
             self.am = ArgoverseMap()
-            
 
     def __getitem__(self, idx):
         if 'preprocess' in self.config and self.config['preprocess']:
             data = self.split[idx]
-            data['argo_id'] = int(self.avl.seq_list[idx].name[:-4]) #160547
+            data['argo_id'] = int(self.avl.seq_list[idx].name[:-4])  # 160547
 
             if self.train and self.config['rot_aug']:
-                #TODO: Delete Here because no rot_aug
+                # TODO: Delete Here because no rot_aug
                 new_data = dict()
                 for key in ['orig', 'gt_preds', 'has_preds']:
                     new_data[key] = ref_copy(data[key])
 
-                dt = np.random.rand() * self.config['rot_size']#np.pi * 2.0
+                dt = np.random.rand() * self.config['rot_size']  # np.pi * 2.0
                 theta = data['theta'] + dt
                 new_data['theta'] = theta
                 new_data['rot'] = np.asarray([
@@ -421,7 +430,7 @@ class ArgoTestDataset(ArgoDataset):
                 data = new_data
             else:
                 new_data = dict()
-                for key in ['orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ctrs', 'graph','argo_id','city']:
+                for key in ['orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ctrs', 'graph', 'argo_id', 'city']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = new_data
@@ -432,22 +441,24 @@ class ArgoTestDataset(ArgoDataset):
         data['graph'] = self.get_lane_graph(data)
         data['idx'] = idx
         return data
-    
+
     def __len__(self):
         if 'preprocess' in self.config and self.config['preprocess']:
             return len(self.split)
         else:
             return len(self.avl)
 
+
 class MapQuery(object):
-    #TODO: DELETE HERE No used
+    # TODO: DELETE HERE No used
     """[Deprecated] Query rasterized map for a given region"""
+
     def __init__(self, scale, autoclip=True):
         """
         scale: one meter -> num of `scale` voxels 
         """
         super(MapQuery, self).__init__()
-        assert scale in (1,2,4,8)
+        assert scale in (1, 2, 4, 8)
         self.scale = scale
         root_dir = '/mnt/yyz_data_1/users/ming.liang/argo/tmp/map_npy/'
         mia_map = np.load(f"{root_dir}/mia_{scale}.npy")
@@ -458,14 +469,15 @@ class MapQuery(object):
             PIT=pit_map
         )
         self.OFFSET = dict(
-                MIA=np.array([502,-545]),
-                PIT=np.array([-642,211]),
-            )
-        self.SHAPE=dict(
-                MIA=(3674, 1482),
-                PIT= (3043, 4259)
-            )
-    def query(self,region,theta=0,city='MIA'):
+            MIA=np.array([502, -545]),
+            PIT=np.array([-642, 211]),
+        )
+        self.SHAPE = dict(
+            MIA=(3674, 1482),
+            PIT=(3043, 4259)
+        )
+
+    def query(self, region, theta=0, city='MIA'):
         """
         region: [x0,x1,y0,y1]
         city: 'MIA' or 'PIT'
@@ -477,38 +489,38 @@ class MapQuery(object):
         map_data = self.map[city]
         offset = self.OFFSET[city]
         shape = self.SHAPE[city]
-        x0,x1,y0,y1 = region
-        x0,x1 = x0+offset[0],x1+offset[0]
-        y0,y1 = y0+offset[1],y1+offset[1]
-        x0,x1,y0,y1 = [round(_*self.scale) for _ in [x0,x1,y0,y1]]
+        x0, x1, y0, y1 = region
+        x0, x1 = x0 + offset[0], x1 + offset[0]
+        y0, y1 = y0 + offset[1], y1 + offset[1]
+        x0, x1, y0, y1 = [round(_ * self.scale) for _ in [x0, x1, y0, y1]]
         # extend the crop region to 2x -- for rotation
-        H,W = y1-y0,x1-x0
-        x0 -= int(round(W/2))
-        y0 -= int(round(H/2))
-        x1 += int(round(W/2))
-        y1 += int(round(H/2))
-        results = np.zeros([H*2,W*2])
+        H, W = y1 - y0, x1 - x0
+        x0 -= int(round(W / 2))
+        y0 -= int(round(H / 2))
+        x1 += int(round(W / 2))
+        y1 += int(round(H / 2))
+        results = np.zeros([H * 2, W * 2])
         # padding of crop -- for outlier
-        xstart,ystart=0,0
+        xstart, ystart = 0, 0
         if self.autoclip:
-            if x0<0:
-                xstart = -x0 
+            if x0 < 0:
+                xstart = -x0
                 x0 = 0
-            if y0<0:
-                ystart = -y0 
+            if y0 < 0:
+                ystart = -y0
                 y0 = 0
-            x1 = min(x1,shape[1]*self.scale-1)
-            y1 = min(y1,shape[0]*self.scale-1)
-        map_mask = map_data[y0:y1,x0:x1]
-        _H,_W = map_mask.shape
-        results[ystart:ystart+_H, xstart:xstart+_W]=map_mask
-        results = results[::-1] # flip to cartesian
+            x1 = min(x1, shape[1] * self.scale - 1)
+            y1 = min(y1, shape[0] * self.scale - 1)
+        map_mask = map_data[y0:y1, x0:x1]
+        _H, _W = map_mask.shape
+        results[ystart:ystart + _H, xstart:xstart + _W] = map_mask
+        results = results[::-1]  # flip to cartesian
         # rotate and remove margin
-        rot_map = rotate(results,theta,center=None,order=0) # center None->map center
-        H,W = results.shape
-        outputH,outputW = round(H/2),round(W/2)
-        startH,startW = round(H//4),round(W//4)
-        crop_map = rot_map[startH:startH+outputH,startW:startW+outputW]
+        rot_map = rotate(results, theta, center=None, order=0)  # center None->map center
+        H, W = results.shape
+        outputH, outputW = round(H / 2), round(W / 2)
+        startH, startW = round(H // 4), round(W // 4)
+        crop_map = rot_map[startH:startH + outputH, startW:startW + outputW]
         return crop_map
 
 
@@ -522,7 +534,7 @@ def ref_copy(data):
         return d
     return data
 
-    
+
 def dilated_nbrs(nbr, num_nodes, num_scales):
     data = np.ones(len(nbr['u']), np.bool)
     csr = sparse.csr_matrix((data, (nbr['u'], nbr['v'])), shape=(num_nodes, num_nodes))
@@ -557,7 +569,7 @@ def dilated_nbrs2(nbr, num_nodes, scales):
             nbrs.append(nbr)
     return nbrs
 
- 
+
 def collate_fn(batch):
     batch = from_numpy(batch)
     return_batch = dict()

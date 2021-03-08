@@ -96,7 +96,6 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     metrics = dict()
     for epoch in range(config['num_epochs']):
         for i, data in enumerate(train_loader):
-            print(i)
             data = dict(data)
             output = net(data)
             loss_out = loss(output, data)

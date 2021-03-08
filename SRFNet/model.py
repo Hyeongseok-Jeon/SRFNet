@@ -8,7 +8,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 from LaneGCN.layers import Conv1d, Res1d, Linear, LinearRes, Null
-from LaneGCN.utils import gpu, to_long,  Optimizer, StepLR
+from LaneGCN.utils import gpu, to_long, Optimizer, StepLR
 
 from data import ArgoDataset, collate_fn
 
@@ -35,6 +35,7 @@ class Net(nn.Module):
         4. PredNet: prediction header for motion forecasting using
            feature from A2A
     """
+
     def __init__(self, config):
         super(Net, self).__init__()
         self.config = config
@@ -48,11 +49,15 @@ class Net(nn.Module):
         # construct actor feature
         actors, actor_idcs = actor_gather(gpu(data["feats"]))
         actor_ctrs = gpu(data["ctrs"])
-        actors = self.actor_net(actors)
+        actors = self.actor_net(actors, actor_idcs)
 
         # construct map features
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
+
+        # concat actor and map features
+
+
 
         # prediction
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
@@ -68,9 +73,17 @@ class Net(nn.Module):
 def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
     batch_size = len(actors)
     num_actors = [len(x) for x in actors]
+    actors_time_step = []
+    for i in range(batch_size):
+        actors_time= []
+        for j in range(20):
+            actor = actors[i]
+            zero_pad = torch.zeros_like(actor)[:, j + 1:, :]
+            tmp = actor[:, :j + 1, :]
+            actors_time.append(torch.cat((zero_pad, tmp), dim=1).transpose(1,2))
+        actors_time_step.append(torch.cat(actors_time, dim=0))
 
-    actors = [x.transpose(1, 2) for x in actors]
-    actors = torch.cat(actors, 0)
+    actors = torch.cat(actors_time_step, 0)
 
     actor_idcs = []
     count = 0
@@ -126,6 +139,7 @@ class ActorNet(nn.Module):
     """
     Actor feature extractor with Conv1D
     """
+
     def __init__(self, config):
         super(ActorNet, self).__init__()
         self.config = config
@@ -159,7 +173,7 @@ class ActorNet(nn.Module):
 
         self.output = Res1d(n, n, norm=norm, ng=ng)
 
-    def forward(self, actors: Tensor) -> Tensor:
+    def forward(self, actors: Tensor, actor_idcs: List) -> Tensor:
         out = actors
 
         outputs = []
@@ -173,13 +187,26 @@ class ActorNet(nn.Module):
             out += self.lateral[i](outputs[i])
 
         out = self.output(out)[:, :, -1]
+        out = self.reform_out(out, actor_idcs)
         return out
 
+    def reform_out(self, out, actor_idcs):
+        veh_cnt = 0
+        actors_batch = []
+        for i in range(len(actor_idcs)):
+            actors_mini_batch = []
+            for j in range(20):
+                actors_mini_batch.append(out[veh_cnt:veh_cnt + len(actor_idcs[i]), :].unsqueeze(dim=1))
+                veh_cnt = veh_cnt + len(actor_idcs[0])
+            actors_batch.append(torch.cat(actors_mini_batch, dim=1))
+
+        return actors_batch
 
 class MapNet(nn.Module):
     """
     Map Graph feature extractor with LaneGraphCNN
     """
+
     def __init__(self, config):
         super(MapNet, self).__init__()
         self.config = config
@@ -223,9 +250,9 @@ class MapNet(nn.Module):
 
     def forward(self, graph):
         if (
-            len(graph["feats"]) == 0
-            or len(graph["pre"][-1]["u"]) == 0
-            or len(graph["suc"][-1]["u"]) == 0
+                len(graph["feats"]) == 0
+                or len(graph["pre"][-1]["u"]) == 0
+                or len(graph["suc"][-1]["u"]) == 0
         ):
             temp = graph["feats"]
             return (
@@ -276,11 +303,11 @@ class MapNet(nn.Module):
         return feat, graph["idcs"], graph["ctrs"]
 
 
-
 class PredNet(nn.Module):
     """
     Final motion forecasting with Linear Residual block
     """
+
     def __init__(self, config):
         super(PredNet, self).__init__()
         self.config = config
@@ -363,7 +390,6 @@ class AttDest(nn.Module):
         return agts
 
 
-
 class PredLoss(nn.Module):
     def __init__(self, config):
         super(PredLoss, self).__init__()
@@ -405,8 +431,8 @@ class PredLoss(nn.Module):
             dist.append(
                 torch.sqrt(
                     (
-                        (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
-                        ** 2
+                            (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
+                            ** 2
                     ).sum(1)
                 )
             )
@@ -421,7 +447,7 @@ class PredLoss(nn.Module):
         mask = mgn < self.config["mgn"]
         coef = self.config["cls_coef"]
         loss_out["cls_loss"] += coef * (
-            self.config["mgn"] * mask.sum() - mgn[mask].sum()
+                self.config["mgn"] * mask.sum() - mgn[mask].sum()
         )
         loss_out["num_cls"] += mask.sum().item()
 
@@ -443,6 +469,6 @@ class Loss(nn.Module):
     def forward(self, out: Dict, data: Dict) -> Dict:
         loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
         loss_out["loss"] = loss_out["cls_loss"] / (
-            loss_out["num_cls"] + 1e-10
+                loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
         return loss_out
