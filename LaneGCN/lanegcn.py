@@ -826,7 +826,7 @@ class PostProcess(nn.Module):
         super(PostProcess, self).__init__()
         self.config = config
 
-    def forward(self, out,data):
+    def forward(self, out, data):
         post_out = dict()
         post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
         post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]

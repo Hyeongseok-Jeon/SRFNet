@@ -58,16 +58,16 @@ def main():
     )
     config["val_split"] = os.path.join(root_path, "LaneGCN","dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 2
-    config["val_batch_size"] = 2
+    config["batch_size"] = 16
+    config["val_batch_size"] = 16
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
 
     os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)    
 
-    val(config)
-    test(config)
+    # val(config)
+    # test(config)
     train(config)
 
 
@@ -110,10 +110,6 @@ def train(config):
         if (i + 1) % 100 == 0:
             print(i, time.time() - t)
             t = time.time()
-
-        if i > 20:
-            break
-
 
     dataset = PreprocessDataset(stores, config, train=True)
     data_loader = DataLoader(
@@ -287,6 +283,7 @@ class PreprocessDataset():
         from SRFNet.data import from_numpy, ref_copy
 
         data = self.split[idx]
+        print(data)
         graph = dict()
         for key in ['lane_idcs', 'ctrs', 'pre_pairs', 'suc_pairs', 'left_pairs', 'right_pairs', 'feats']:
             graph[key] = ref_copy(data['graph'][key])
