@@ -14,6 +14,10 @@ def get_config(root_path):
     config["val_split"] = os.path.join(root_path, "dataset/val/data")
     config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 
+    # Data Loader setting
+    config["workers"] = 24
+    config["val_workers"] = config["workers"]
+
     # Training setting
     config["batch_size"] = 32
     config["val_batch_size"] = 32
@@ -23,6 +27,9 @@ def get_config(root_path):
     config["lr_epochs"] = [100]
     config["lr_func"] = StepLR(config["lr"], config["lr_epochs"])
     config["display_iters"] = 205942
+    config["save_freq"] = 5
+    config["display_iters"] = 1
+    config["val_iters"] = 5
 
     # LaneGCN model setting
     config["n_actor"] = 128
@@ -33,16 +40,8 @@ def get_config(root_path):
     config["pred_step"] = 1
     config["num_preds"] = config["pred_size"] // config["pred_step"]
 
-
-    config["display_iters"] = 205942
-    config["val_iters"] = 205942 * 2
-    config["save_freq"] = 1.0
-    config["epoch"] = 0
-
-    config["lr_epochs"] = [32]
-
     file_path = os.path.abspath(os.curdir)
     model_name = os.path.basename(file_path).split(".")[0]
-
     config["save_dir"] = os.path.join(root_path, "SRFNet", "results", model_name)
+
     return config

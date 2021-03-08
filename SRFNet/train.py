@@ -87,13 +87,9 @@ def main():
 def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     net.train()
 
-    num_batches = len(train_loader)
-    epoch_per_batch = 1.0 / num_batches
-    save_iters = int(np.ceil(config["save_freq"] * num_batches))
-    display_iters = int(
-        config["display_iters"] / (hvd.size() * config["batch_size"])
-    )
-    val_iters = int(config["val_iters"] / (hvd.size() * config["batch_size"]))
+    save_iters = config["save_freq"]
+    display_iters = config["display_iters"]
+    val_iters = config["val_iters"]
 
     start_time = time.time()
     metrics = dict()
@@ -109,27 +105,20 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             loss_out["loss"].backward()
             lr = opt.step()
 
-            num_iters = int(np.round(epoch * num_batches))
-            if num_iters % save_iters == 0 or epoch >= config["num_epochs"]:
-                save_ckpt(net, opt, config["save_dir"], epoch)
+        if epoch % save_iters == save_iters - 1:
+            save_ckpt(net, opt, config["save_dir"], epoch)
 
-            if num_iters % display_iters == 0:
-                dt = time.time() - start_time
-                post_process.display(metrics, dt, epoch, lr)
-                start_time = time.time()
-                metrics = dict()
+        if epoch % display_iters == display_iters - 1:
+            dt = time.time() - start_time
+            post_process.display(metrics, dt, epoch, lr)
+            start_time = time.time()
+            metrics = dict()
 
-            if num_iters % val_iters == 0:
-                val(config, val_loader, net, loss, post_process, epoch)
-
-            if epoch >= config["num_epochs"]:
-                val(config, val_loader, net, loss, post_process, epoch)
-                return
-
+        if epoch % val_iters == val_iters - 1:
+            val(config, val_loader, net, loss, post_process, epoch)
 
 def val(config, data_loader, net, loss, post_process, epoch):
     net.eval()
-
     start_time = time.time()
     metrics = dict()
     for i, data in enumerate(data_loader):
@@ -141,9 +130,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
             post_process.append(metrics, loss_out, post_out)
 
     dt = time.time() - start_time
-    metrics = sync(metrics)
-    if hvd.rank() == 0:
-        post_process.display(metrics, dt, epoch)
+    post_process.display(metrics, dt, epoch)
     net.train()
 
 

@@ -362,6 +362,11 @@ class ArgoDataset(Dataset):
                 graph[key] += dilated_nbrs(graph[key][0], graph['num_nodes'], self.config['num_scales'])
         return graph
 
+    def get_ctrs_idx(self, data):
+        ctrs_list = data['graph']['ctrs']
+        nearest_ctrs_hist = np.zeros_like(data['feats'])[:,:,0]
+
+
 
 class ArgoTestDataset(ArgoDataset):
     def __init__(self, split, config, train=False):

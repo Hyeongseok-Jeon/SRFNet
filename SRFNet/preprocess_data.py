@@ -281,9 +281,7 @@ class PreprocessDataset():
 
     def __getitem__(self, idx):
         from SRFNet.data import from_numpy, ref_copy
-
         data = self.split[idx]
-        print(data)
         graph = dict()
         for key in ['lane_idcs', 'ctrs', 'pre_pairs', 'suc_pairs', 'left_pairs', 'right_pairs', 'feats']:
             graph[key] = ref_copy(data['graph'][key])
