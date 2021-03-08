@@ -56,8 +56,8 @@ def main():
     config["train_split"] = os.path.join(
         root_path, "LaneGCN","dataset/train/data"
     )
-    config["val_split"] = os.path.join(root_path, "SRFNet","dataset/val/data")
-    config["test_split"] = os.path.join(root_path,"SRFNet", "dataset/test_obs/data")
+    config["val_split"] = os.path.join(root_path, "LaneGCN","dataset/val/data")
+    config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
     config["batch_size"] = 2
     config["val_batch_size"] = 2
     config["rot_aug"] = False

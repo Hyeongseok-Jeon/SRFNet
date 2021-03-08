@@ -137,7 +137,7 @@ class ArgoDataset(Dataset):
         agt_step = steps[idcs]
 
         del keys[av_idx]
-        del keys[agt_idx]
+        del keys[agt_idx-1]
         ctx_trajs, ctx_steps = [], []
         for key in keys:
             idcs = objs[key]
