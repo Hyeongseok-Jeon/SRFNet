@@ -47,8 +47,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 1
+config["val_batch_size"] = 1
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -139,15 +139,22 @@ class Net(nn.Module):
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
-
+        print(actors.shape)
         # prediction
+        print(actor_idcs)
+        print(actor_ctrs)
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
+
+        print(len(out["reg"]))
+
         rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
                 1, 1, 1, -1
             )
+        print('aasdfasdf')
+        print(out)
         return out
 
 
@@ -620,7 +627,8 @@ class PredNet(nn.Module):
         row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
         sort_idcs = sort_idcs.view(-1)
         reg = reg[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
-
+        print('in pred')
+        print(len(reg))
         out = dict()
         out["cls"], out["reg"] = [], []
         for i in range(len(actor_idcs)):
