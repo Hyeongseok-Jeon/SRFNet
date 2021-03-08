@@ -35,7 +35,7 @@ comm = MPI.COMM_WORLD
 hvd.init()
 torch.cuda.set_device(hvd.local_rank())
 
-root_path = os.path.dirname(os.path.abspath(__file__))
+root_path = os.path.join(os.path.abspath(os.curdir))
 sys.path.insert(0, root_path)
 
 
