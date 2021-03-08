@@ -77,6 +77,7 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
+    net = net.cuda()
 
     opt = Optimizer(net.parameters(), config)
     loss = Loss(config)
@@ -95,6 +96,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     metrics = dict()
     for epoch in range(config['num_epochs']):
         for i, data in enumerate(train_loader):
+            print(i)
             data = dict(data)
             output = net(data)
             loss_out = loss(output, data)
@@ -103,7 +105,8 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
 
             opt.zero_grad()
             loss_out["loss"].backward()
-            lr = opt.step()
+            lr = opt.step(epoch)
+
 
         if epoch % save_iters == save_iters - 1:
             save_ckpt(net, opt, config["save_dir"], epoch)
