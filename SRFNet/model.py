@@ -50,7 +50,8 @@ class Net(nn.Module):
         actors, actor_idcs = actor_gather(gpu(data["feats"]))
         actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors, actor_idcs)
-
+        actors = [x[:,-1,:] for x in actors]
+        actors = torch.cat(actors, dim=0)
         # construct map features
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
@@ -187,8 +188,8 @@ class ActorNet(nn.Module):
             out += self.lateral[i](outputs[i])
 
         out = self.output(out)[:, :, -1]
-        out = self.reform_out(out, actor_idcs)
-        return out
+        out_reform = self.reform_out(out, actor_idcs)
+        return out_reform
 
     def reform_out(self, out, actor_idcs):
         veh_cnt = 0
@@ -197,7 +198,7 @@ class ActorNet(nn.Module):
             actors_mini_batch = []
             for j in range(20):
                 actors_mini_batch.append(out[veh_cnt:veh_cnt + len(actor_idcs[i]), :].unsqueeze(dim=1))
-                veh_cnt = veh_cnt + len(actor_idcs[0])
+                veh_cnt = veh_cnt + len(actor_idcs[i])
             actors_batch.append(torch.cat(actors_mini_batch, dim=1))
 
         return actors_batch

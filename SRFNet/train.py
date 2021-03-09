@@ -19,6 +19,7 @@ import argparse
 import numpy as np
 import random
 import sys
+
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 import time
 import shutil
@@ -31,10 +32,11 @@ import horovod.torch as hvd
 from torch.utils.data.distributed import DistributedSampler
 from mpi4py import MPI
 from SRFNet.data import ArgoDataset as Dataset, collate_fn
-from LaneGCN.lanegcn import PostProcess
+from LaneGCN.lanegcn import PostProcess, pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer
 from SRFNet.model import Net, Loss
+
 warnings.filterwarnings("ignore")
 
 root_path = os.path.join(os.path.abspath(os.curdir))
@@ -45,6 +47,7 @@ parser.add_argument('--gpu_id', type=int, default=0)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
+
 
 def main():
     config = get_config(root_path)
@@ -88,27 +91,50 @@ def main():
 def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     net.train()
 
-    save_iters = config["save_freq"]
     display_iters = config["display_iters"]
     val_iters = config["val_iters"]
 
     start_time = time.time()
     metrics = dict()
+    batch_num = len(train_loader.dataset)
     for epoch in range(config['num_epochs']):
+        update_num = 0
+        ade1_tot = 0
+        fde1_tot = 0
+        ade_tot = 0
+        fde_tot = 0
+        loss_tot = 0
+        init_time = time.time()
         for i, data in enumerate(train_loader):
+            current = (i + 1) * config['batch_size']
+            percent = float(current) * 100 / batch_num
+            arrow = '-' * int(percent / 100 * 20 - 1) + '>'
+            spaces = ' ' * (20 - len(arrow))
+            if i == 0:
+                sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
+            else:
+                sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot/update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+
+
             data = dict(data)
             output = net(data)
             loss_out = loss(output, data)
             post_out = post_process(output, data)
-            post_process.append(metrics, loss_out, post_out)
+            ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                   np.concatenate(post_out['gt_preds'], 0),
+                                                   np.concatenate(post_out['has_preds'], 0))
+
+            ade1_tot += ade1 * len(data["city"])
+            fde1_tot += fde1 * len(data["city"])
+            ade_tot += ade * len(data["city"])
+            fde_tot += fde * len(data["city"])
+            loss_tot += loss_out["loss"].item() * len(data["city"])
+            update_num += len(data["city"])
 
             opt.zero_grad()
             loss_out["loss"].backward()
             lr = opt.step(epoch)
-
-
-        if epoch % save_iters == save_iters - 1:
-            save_ckpt(net, opt, config["save_dir"], epoch)
 
         if epoch % display_iters == display_iters - 1:
             dt = time.time() - start_time
@@ -117,7 +143,9 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             metrics = dict()
 
         if epoch % val_iters == val_iters - 1:
+            save_ckpt(net, opt, config["save_dir"], epoch)
             val(config, val_loader, net, loss, post_process, epoch)
+
 
 def val(config, data_loader, net, loss, post_process, epoch):
     net.eval()

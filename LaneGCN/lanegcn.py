@@ -828,9 +828,9 @@ class PostProcess(nn.Module):
 
     def forward(self, out, data):
         post_out = dict()
-        post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
-        post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
-        post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
+        post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
+        post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
         return post_out
 
     def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
