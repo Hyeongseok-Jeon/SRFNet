@@ -19,8 +19,8 @@ def get_config(root_path):
     config["val_workers"] = config["workers"]
 
     # Training setting
-    config["batch_size"] = 16
-    config["val_batch_size"] = 16
+    config["batch_size"] = 4
+    config["val_batch_size"] = 4
     config["num_epochs"] = 100
     config["opt"] = "adam"
     config["lr"] = [1e-3, 1e-4]
@@ -35,6 +35,7 @@ def get_config(root_path):
     config["mgn"] = 0.2
     config["cls_coef"] = 1.0
     config["reg_coef"] = 1.0
+    config["training"] = True
 
     # LaneGCN model setting
     config["n_actor"] = 128

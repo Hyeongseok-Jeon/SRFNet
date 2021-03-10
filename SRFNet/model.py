@@ -64,7 +64,7 @@ class Net(nn.Module):
 
         # concat actor and map features
         actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph, data)
-
+        [one_step_feats, adjs] = tempAtt_net(actor_graph)
         # prediction
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
         rot, orig = gpu(data["rot"]), gpu(data["orig"])
@@ -132,9 +132,9 @@ def map_graph_gather(data):
 def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
     batch_size = len(actors)
     tot_veh_num = actor_idcs[-1][-1] + 1
-    node_feat_mask = torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map']))
+    node_feat_mask = gpu(torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map'])))
     gen_num = 0
-    adj_mask = torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor']))
+    adj_mask = gpu(torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor'])))
 
     maps = []
     for i in range(batch_size):
@@ -338,11 +338,15 @@ class TempAttNet(nn.Module):
                        config["n_actor"],
                        config["GAT_dropout"],
                        config["GAT_Leakyrelu_alpha"],
-                       config["n_actor"])
+                       nTime=20,
+                       training = config["training"])
 
-    def forward(self, actors: Tensor, actor_idcs: List) -> Tensor:
+    def forward(self, actor_graph) -> Tensor:
+        out = GAT(actor_graph)
+        feats = torch.cat(out[0], dim=0)
+        adjs = torch.cat(out[1], dim=0)
 
-        return out_reform
+        return [feats, adjs]
 
 
 class PredNet(nn.Module):
@@ -433,28 +437,27 @@ class AttDest(nn.Module):
 
 
 class GAT(nn.Module):
-    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
+    def __init__(self, nfeat, nhid, dropout, alpha, nTime, training):
         """Dense version of GAT."""
         super(GAT, self).__init__()
         self.dropout = dropout
-
-        self.input_layer = GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True, training=True)
-        self.attentions = [GraphAttentionLayer(nhid, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        self.training = training
+        self.nTime = nTime
+        self.input_layer = nn.Linear(nfeat, nhid)
+        self.attentions = [GraphAttentionLayer(nhid, nhid, dropout=dropout, alpha=alpha, concat=True, training=self.training) for _ in range(nTime)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
-
-
-        self.out_att = GraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
 
     def forward(self, actor_graph):
         x = actor_graph['node_feat'][:,0,:]
         adj = actor_graph['adj_mask']
-        tmp = self.input_layer(x,adj)
+        x = F.elu(self.input_layer(x))
         x = F.dropout(x, self.dropout, training=self.training)
-        x = torch.cat([att(x, adj) for att in self.attentions], dim=1)
-        x = F.dropout(x, self.dropout, training=self.training)
-        x = F.elu(self.out_att(x, adj))
-        return F.log_softmax(x, dim=1)
+        x = [att([x, adj]) for att in self.attentions]
+        feats = [F.dropout(x[i][0].unsqueeze(dim = 0), self.dropout, training=self.training) for i in range(self.nTime)]
+        adjs = [x[i][1].unsqueeze(dim=0) for i in range(self.nTime)]
+
+        return [feats, adjs]
 
 
 class PredLoss(nn.Module):
