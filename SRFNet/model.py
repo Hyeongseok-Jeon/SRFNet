@@ -44,6 +44,7 @@ class Net(nn.Module):
         self.actor_net = ActorNet(config)
         self.map_net = MapNet(config)
         self.tempAtt_net = TempAttNet(config)
+        self.SRF_net = SRF_net(config)
         self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
@@ -53,20 +54,31 @@ class Net(nn.Module):
         actor_idcs = []
         veh_calc = 0
         for i in range(len(data['actor_idcs'])):
-            actor_idcs.append(gpu(data['actor_idcs'][i][0]+veh_calc))
+            actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc))
             veh_calc += len(data['actor_idcs'][i][0])
         actors = self.actor_net(actors, actor_idcs)
 
         # construct map features
-
         graph = to_long(gpu(map_graph_gather(data)))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # concat actor and map features
         actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph, data)
-        [one_step_feats, adjs] = tempAtt_net(actor_graph)
+
+        # get temporal attention matrix
+        [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
+
+        reaction_to_ego = adjs[:, :, 0, :]
+        _, (hn, cn) = self.SRF_net(reaction_to_ego)
+
+        if self.config["reactive"]:
+
+            actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + cn[1]
+        else:
+            actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + hn[0]
+
         # prediction
-        out = self.pred_net(actors, actor_idcs, actor_ctrs)
+        out = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
         rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
@@ -138,8 +150,8 @@ def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
 
     maps = []
     for i in range(batch_size):
-        idx = data['feats'][i][:,:,2:].cuda()
-        idx = torch.repeat_interleave(idx, config['n_actor'],dim=-1)
+        idx = data['feats'][i][:, :, 2:].cuda()
+        idx = torch.repeat_interleave(idx, config['n_actor'], dim=-1)
         map_node_idx = graph["idcs"][i][data['nearest_ctrs_hist'][i].long()]
         map_node = nodes[map_node_idx]
         maps.append(map_node * idx)
@@ -147,7 +159,7 @@ def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
     for i in range(batch_size):
         node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, :config['n_actor']] = actors[i]
         node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, config['n_actor']:] = maps[i]
-        adj_mask[gen_num:gen_num + actors[i].shape[0],gen_num:gen_num + actors[i].shape[0],:] = 1
+        adj_mask[gen_num:gen_num + actors[i].shape[0], gen_num:gen_num + actors[i].shape[0], :] = 1
         gen_num += actors[i].shape[0]
 
     actor_graph = dict()
@@ -325,28 +337,41 @@ class MapNet(nn.Module):
         return feat, graph["idcs"], graph["ctrs"]
 
 
-
 class TempAttNet(nn.Module):
-    """
-    Actor feature extractor with Conv1D
-    """
-
     def __init__(self, config):
         super(TempAttNet, self).__init__()
         self.config = config
+        self.W = nn.Parameter(torch.empty(size=(config["n_actor"], config["n_actor"])))
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
         self.GAT = GAT(config["n_actor"] + config["n_map"],
                        config["n_actor"],
                        config["GAT_dropout"],
                        config["GAT_Leakyrelu_alpha"],
                        nTime=20,
-                       training = config["training"])
+                       training=config["training"])
 
-    def forward(self, actor_graph) -> Tensor:
-        out = GAT(actor_graph)
+    def forward(self, actor_graph):
+        out = self.GAT(actor_graph, self.W)
         feats = torch.cat(out[0], dim=0)
         adjs = torch.cat(out[1], dim=0)
 
         return [feats, adjs]
+
+
+class SRF_net(nn.Module):
+    def __init__(self, config):
+        super(SRF_net, self).__init__()
+        self.config = config
+
+        self.LSTM = nn.LSTM(input_size=128,
+                            hidden_size=128,
+                            num_layers=1).cuda()
+
+    def forward(self, feats):
+        feats = feats.contiguous()
+        out = self.LSTM(feats[1:, :, :], (torch.zeros_like(feats[0:1, :, :]), feats[0:1, :, :]))
+
+        return out
 
 
 class PredNet(nn.Module):
@@ -448,13 +473,13 @@ class GAT(nn.Module):
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
 
-    def forward(self, actor_graph):
-        x = actor_graph['node_feat'][:,0,:]
+    def forward(self, actor_graph, share_weight):
+        x = actor_graph['node_feat'][:, 0, :]
         adj = actor_graph['adj_mask']
         x = F.elu(self.input_layer(x))
         x = F.dropout(x, self.dropout, training=self.training)
-        x = [att([x, adj]) for att in self.attentions]
-        feats = [F.dropout(x[i][0].unsqueeze(dim = 0), self.dropout, training=self.training) for i in range(self.nTime)]
+        x = [att([x, adj], share_weight) for att in self.attentions]
+        feats = [F.dropout(x[i][0].unsqueeze(dim=0), self.dropout, training=self.training) for i in range(self.nTime)]
         adjs = [x[i][1].unsqueeze(dim=0) for i in range(self.nTime)]
 
         return [feats, adjs]
@@ -542,3 +567,5 @@ class Loss(nn.Module):
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
         return loss_out
+
+# TODO: need to consider global position of the vehicles in GAT

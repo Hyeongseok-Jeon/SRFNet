@@ -176,3 +176,6 @@ def save_ckpt(net, opt, save_dir, epoch):
         {"epoch": epoch, "state_dict": state_dict, "opt_state": opt.opt.state_dict()},
         os.path.join(save_dir, save_name),
     )
+
+if __name__ == "__main__":
+    main()
