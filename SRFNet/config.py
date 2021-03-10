@@ -44,6 +44,10 @@ def get_config(root_path):
     config["pred_size"] = 30
     config["pred_step"] = 1
     config["num_preds"] = config["pred_size"] // config["pred_step"]
+    config["GAT_dropout"] = 0.5
+    config["GAT_Leakyrelu_alpha"] = 0.2
+    config["GAT_num_head"] = config["n_actor"]
+
 
     file_path = os.path.abspath(os.curdir)
     model_name = os.path.basename(file_path).split(".")[0]

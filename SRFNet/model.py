@@ -14,6 +14,7 @@ from data import ArgoDataset, collate_fn
 
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from SRFNet.layer import GraphAttentionLayer
 
 
 class Net(nn.Module):
@@ -42,23 +43,27 @@ class Net(nn.Module):
 
         self.actor_net = ActorNet(config)
         self.map_net = MapNet(config)
-
+        self.tempAtt_net = TempAttNet(config)
         self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(data["feats"]))
+        actors = torch.cat(gpu(data['actors']), dim=0)
         actor_ctrs = gpu(data["ctrs"])
+        actor_idcs = []
+        veh_calc = 0
+        for i in range(len(data['actor_idcs'])):
+            actor_idcs.append(gpu(data['actor_idcs'][i][0]+veh_calc))
+            veh_calc += len(data['actor_idcs'][i][0])
         actors = self.actor_net(actors, actor_idcs)
-        actors = [x[:,-1,:] for x in actors]
-        actors = torch.cat(actors, dim=0)
+
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"])))
+
+        graph = to_long(gpu(map_graph_gather(data)))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # concat actor and map features
-
-
+        actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph, data)
 
         # prediction
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
@@ -71,69 +76,84 @@ class Net(nn.Module):
         return out
 
 
-def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
+def map_graph_gather(data):
+    map_node_cnt = [0]
+    veh_cnt = 0
+    for i in range(len(data['actor_idcs']) - 1):
+        map_node_cnt.append(len(data['graph_mod'][i]['idcs'][0]) + veh_cnt)
+        veh_cnt += len(data['graph_mod'][i]['idcs'][0])
+
+    graph_mod = dict()
+    idcs = [data['graph_mod'][i]['idcs'][0] + map_node_cnt[i] for i in range(len(data['actor_idcs']))]
+    ctrs = [data['graph_mod'][i]['ctrs'][0] for i in range(len(data['actor_idcs']))]
+    feats = torch.cat([data['graph_mod'][i]['feats'] for i in range(len(data['actor_idcs']))], dim=0)
+    turn = torch.cat([data['graph_mod'][i]['turn'] for i in range(len(data['actor_idcs']))], dim=0)
+    control = torch.cat([data['graph_mod'][i]['control'] for i in range(len(data['actor_idcs']))], dim=0)
+    intersect = torch.cat([data['graph_mod'][i]['intersect'] for i in range(len(data['actor_idcs']))], dim=0)
+
+    graph_mod['idcs'] = idcs
+    graph_mod['ctrs'] = ctrs
+    graph_mod['feats'] = feats
+    graph_mod['turn'] = turn
+    graph_mod['control'] = control
+    graph_mod['intersect'] = intersect
+    graph_mod['pre'] = []
+    graph_mod['suc'] = []
+    for j in range(6):
+        for i in range(len(data['actor_idcs'])):
+            if i == 0:
+                pre_tmp_u = data['graph_mod'][i]['pre'][j]['u'] + map_node_cnt[i]
+                pre_tmp_v = data['graph_mod'][i]['pre'][j]['v'] + map_node_cnt[i]
+                suc_tmp_u = data['graph_mod'][i]['suc'][j]['u'] + map_node_cnt[i]
+                suc_tmp_v = data['graph_mod'][i]['suc'][j]['v'] + map_node_cnt[i]
+                if j < 2:
+                    left_tmp_u = data['graph_mod'][i]['left']['u'] + map_node_cnt[i]
+                    left_tmp_v = data['graph_mod'][i]['left']['v'] + map_node_cnt[i]
+                    right_tmp_u = data['graph_mod'][i]['right']['u'] + map_node_cnt[i]
+                    right_tmp_v = data['graph_mod'][i]['right']['v'] + map_node_cnt[i]
+            else:
+                pre_tmp_u = torch.cat((pre_tmp_u, data['graph_mod'][i]['pre'][j]['u'] + map_node_cnt[i]))
+                pre_tmp_v = torch.cat((pre_tmp_v, data['graph_mod'][i]['pre'][j]['v'] + map_node_cnt[i]))
+                suc_tmp_u = torch.cat((suc_tmp_u, data['graph_mod'][i]['suc'][j]['u'] + map_node_cnt[i]))
+                suc_tmp_v = torch.cat((suc_tmp_v, data['graph_mod'][i]['suc'][j]['v'] + map_node_cnt[i]))
+                if j < 2:
+                    left_tmp_u = torch.cat((left_tmp_u, data['graph_mod'][i]['left']['u'] + map_node_cnt[i]))
+                    left_tmp_v = torch.cat((left_tmp_v, data['graph_mod'][i]['left']['v'] + map_node_cnt[i]))
+                    right_tmp_u = torch.cat((right_tmp_u, data['graph_mod'][i]['right']['u'] + map_node_cnt[i]))
+                    right_tmp_v = torch.cat((right_tmp_v, data['graph_mod'][i]['right']['v'] + map_node_cnt[i]))
+
+        graph_mod['pre'].append({'u': pre_tmp_u, 'v': pre_tmp_v})
+        graph_mod['suc'].append({'u': suc_tmp_u, 'v': suc_tmp_v})
+    graph_mod['left'] = {'u': left_tmp_u, 'v': left_tmp_v}
+    graph_mod['right'] = {'u': right_tmp_u, 'v': right_tmp_v}
+    return graph_mod
+
+
+def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
     batch_size = len(actors)
-    num_actors = [len(x) for x in actors]
-    actors_time_step = []
+    tot_veh_num = actor_idcs[-1][-1] + 1
+    node_feat_mask = torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map']))
+    gen_num = 0
+    adj_mask = torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor']))
+
+    maps = []
     for i in range(batch_size):
-        actors_time= []
-        for j in range(20):
-            actor = actors[i]
-            zero_pad = torch.zeros_like(actor)[:, j + 1:, :]
-            tmp = actor[:, :j + 1, :]
-            actors_time.append(torch.cat((zero_pad, tmp), dim=1).transpose(1,2))
-        actors_time_step.append(torch.cat(actors_time, dim=0))
+        idx = data['feats'][i][:,:,2:].cuda()
+        idx = torch.repeat_interleave(idx, config['n_actor'],dim=-1)
+        map_node_idx = graph["idcs"][i][data['nearest_ctrs_hist'][i].long()]
+        map_node = nodes[map_node_idx]
+        maps.append(map_node * idx)
 
-    actors = torch.cat(actors_time_step, 0)
-
-    actor_idcs = []
-    count = 0
     for i in range(batch_size):
-        idcs = torch.arange(count, count + num_actors[i]).to(actors.device)
-        actor_idcs.append(idcs)
-        count += num_actors[i]
-    return actors, actor_idcs
+        node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, :config['n_actor']] = actors[i]
+        node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, config['n_actor']:] = maps[i]
+        adj_mask[gen_num:gen_num + actors[i].shape[0],gen_num:gen_num + actors[i].shape[0],:] = 1
+        gen_num += actors[i].shape[0]
 
-
-def graph_gather(graphs):
-    batch_size = len(graphs)
-    node_idcs = []
-    count = 0
-    counts = []
-    for i in range(batch_size):
-        counts.append(count)
-        idcs = torch.arange(count, count + graphs[i]["num_nodes"]).to(
-            graphs[i]["feats"].device
-        )
-        node_idcs.append(idcs)
-        count = count + graphs[i]["num_nodes"]
-
-    graph = dict()
-    graph["idcs"] = node_idcs
-    graph["ctrs"] = [x["ctrs"] for x in graphs]
-
-    for key in ["feats", "turn", "control", "intersect"]:
-        graph[key] = torch.cat([x[key] for x in graphs], 0)
-
-    for k1 in ["pre", "suc"]:
-        graph[k1] = []
-        for i in range(len(graphs[0]["pre"])):
-            graph[k1].append(dict())
-            for k2 in ["u", "v"]:
-                graph[k1][i][k2] = torch.cat(
-                    [graphs[j][k1][i][k2] + counts[j] for j in range(batch_size)], 0
-                )
-
-    for k1 in ["left", "right"]:
-        graph[k1] = dict()
-        for k2 in ["u", "v"]:
-            temp = [graphs[i][k1][k2] + counts[i] for i in range(batch_size)]
-            temp = [
-                x if x.dim() > 0 else graph["pre"][0]["u"].new().resize_(0)
-                for x in temp
-            ]
-            graph[k1][k2] = torch.cat(temp)
-    return graph
+    actor_graph = dict()
+    actor_graph["node_feat"] = node_feat_mask
+    actor_graph["adj_mask"] = adj_mask
+    return actor_graph
 
 
 class ActorNet(nn.Module):
@@ -202,6 +222,7 @@ class ActorNet(nn.Module):
             actors_batch.append(torch.cat(actors_mini_batch, dim=1))
 
         return actors_batch
+
 
 class MapNet(nn.Module):
     """
@@ -304,6 +325,26 @@ class MapNet(nn.Module):
         return feat, graph["idcs"], graph["ctrs"]
 
 
+
+class TempAttNet(nn.Module):
+    """
+    Actor feature extractor with Conv1D
+    """
+
+    def __init__(self, config):
+        super(TempAttNet, self).__init__()
+        self.config = config
+        self.GAT = GAT(config["n_actor"] + config["n_map"],
+                       config["n_actor"],
+                       config["GAT_dropout"],
+                       config["GAT_Leakyrelu_alpha"],
+                       config["n_actor"])
+
+    def forward(self, actors: Tensor, actor_idcs: List) -> Tensor:
+
+        return out_reform
+
+
 class PredNet(nn.Module):
     """
     Final motion forecasting with Linear Residual block
@@ -389,6 +430,31 @@ class AttDest(nn.Module):
         agts = torch.cat((dist, agts), 1)
         agts = self.agt(agts)
         return agts
+
+
+class GAT(nn.Module):
+    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
+        """Dense version of GAT."""
+        super(GAT, self).__init__()
+        self.dropout = dropout
+
+        self.input_layer = GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True, training=True)
+        self.attentions = [GraphAttentionLayer(nhid, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        for i, attention in enumerate(self.attentions):
+            self.add_module('attention_{}'.format(i), attention)
+
+
+        self.out_att = GraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
+
+    def forward(self, actor_graph):
+        x = actor_graph['node_feat'][:,0,:]
+        adj = actor_graph['adj_mask']
+        tmp = self.input_layer(x,adj)
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = torch.cat([att(x, adj) for att in self.attentions], dim=1)
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = F.elu(self.out_att(x, adj))
+        return F.log_softmax(x, dim=1)
 
 
 class PredLoss(nn.Module):

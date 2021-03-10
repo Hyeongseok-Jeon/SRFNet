@@ -11,6 +11,7 @@ import copy
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from skimage.transform import rotate
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 
 class ArgoDataset(Dataset):
@@ -78,6 +79,12 @@ class ArgoDataset(Dataset):
                 raster = self.map_query.query(region, data['theta'], data['city'])
 
                 data['raster'] = raster
+            actors, actor_idcs = actor_gather(data["feats"])
+            graph = map_graph_gather(data["graph"])
+
+            data['actors'] = actors
+            data['actor_idcs'] = actor_idcs
+            data['graph_mod'] = graph
             data = self.get_ctrs_idx(data)
             return data
 
@@ -607,3 +614,62 @@ def cat(batch):
     else:
         return_batch = batch
     return return_batch
+
+
+
+def actor_gather(actors):
+    num_actors = len(actors)
+    actors_time = []
+    for j in range(20):
+        zero_pad = np.zeros_like(actors)[:, j + 1:, :]
+        tmp = actors[:, :j + 1, :]
+        actors_time.append(np.transpose(np.concatenate((zero_pad, tmp), axis=1),  (0, 2, 1)))
+
+    actors = np.concatenate(actors_time, 0)
+
+    actor_idcs = []
+    idcs = np.arange(0, num_actors)
+    actor_idcs.append(idcs)
+
+    return actors, actor_idcs
+
+
+
+def map_graph_gather(graphs):
+    graphs = [graphs]
+    batch_size = len(graphs)
+    node_idcs = []
+    count = 0
+    counts = []
+    for i in range(batch_size):
+        counts.append(count)
+        idcs = np.arange(count, count + graphs[i]["num_nodes"])
+        node_idcs.append(idcs)
+        count = count + graphs[i]["num_nodes"]
+
+    graph = dict()
+    graph["idcs"] = node_idcs
+    graph["ctrs"] = [x["ctrs"] for x in graphs]
+
+    for key in ["feats", "turn", "control", "intersect"]:
+        graph[key] = np.concatenate([x[key] for x in graphs], 0)
+
+    for k1 in ["pre", "suc"]:
+        graph[k1] = []
+        for i in range(len(graphs[0]["pre"])):
+            graph[k1].append(dict())
+            for k2 in ["u", "v"]:
+                graph[k1][i][k2] = np.concatenate(
+                    [graphs[j][k1][i][k2] + counts[j] for j in range(batch_size)], 0
+                )
+
+    for k1 in ["left", "right"]:
+        graph[k1] = dict()
+        for k2 in ["u", "v"]:
+            temp = [graphs[i][k1][k2] + counts[i] for i in range(batch_size)]
+            temp = [
+                x if x.ndim > 0 else graph["pre"][0]["u"].new().resize_(0)
+                for x in temp
+            ]
+            graph[k1][k2] = np.concatenate(temp)
+    return graph

@@ -116,7 +116,6 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
                 epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot/update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
-
             data = dict(data)
             output = net(data)
             loss_out = loss(output, data)
