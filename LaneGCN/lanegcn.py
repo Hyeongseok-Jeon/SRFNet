@@ -126,12 +126,12 @@ class Net(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(data["feats"]))
-        actor_ctrs = gpu(data["ctrs"])
+        actors, actor_idcs = actor_gather(gpu(data["feats"], self.config['gpu_id']))
+        actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"])))
+        graph = graph_gather(to_long(gpu(data["graph"], self.config['gpu_id'])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # actor-map fusion cycle 
@@ -142,7 +142,7 @@ class Net(nn.Module):
 
         # prediction
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"]), gpu(data["orig"])
+        rot, orig = gpu(data["rot"], self.config['gpu_id']), gpu(data["orig"], self.config['gpu_id'])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
@@ -814,7 +814,7 @@ class Loss(nn.Module):
         self.pred_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
+        loss_out = self.pred_loss(out, gpu(data["gt_preds"], self.config['gpu_id']), gpu(data["has_preds"], self.config['gpu_id']))
         loss_out["loss"] = loss_out["cls_loss"] / (
             loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
@@ -899,12 +899,13 @@ def pred_metrics(preds, gt_preds, has_preds):
     return ade1, fde1, ade, fde, min_idcs
 
 
-def get_model():
+def get_model(gpu_id):
+    config['gpu_id'] = gpu_id
     net = Net(config)
-    net = net.cuda()
+    net = net.cuda(gpu_id)
 
-    loss = Loss(config).cuda()
-    post_process = PostProcess(config).cuda()
+    loss = Loss(config).cuda(gpu_id)
+    post_process = PostProcess(config).cuda(gpu_id)
 
     params = net.parameters()
     opt = Optimizer(params, config)

@@ -45,21 +45,22 @@ class Net(nn.Module):
         self.map_net = MapNet(config)
         self.tempAtt_net = TempAttNet(config)
         self.SRF_net = SRF_net(config)
+        self.sur_interact_net = SIN_net(config)
         self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors = torch.cat(gpu(data['actors']), dim=0)
-        actor_ctrs = gpu(data["ctrs"])
+        actors = torch.cat(gpu(data['actors'], self.config['gpu_id']), dim=0)
+        actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
         actor_idcs = []
         veh_calc = 0
         for i in range(len(data['actor_idcs'])):
-            actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc))
+            actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc, self.config['gpu_id']))
             veh_calc += len(data['actor_idcs'][i][0])
         actors = self.actor_net(actors, actor_idcs)
 
         # construct map features
-        graph = to_long(gpu(map_graph_gather(data)))
+        graph = to_long(gpu(map_graph_gather(data), self.config['gpu_id']))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # concat actor and map features
@@ -68,26 +69,43 @@ class Net(nn.Module):
         # get temporal attention matrix
         [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
         veh_calc = 0
-        reaction_to_ego = []
+        reaction_to_veh = []
         for i in range(len(data['actor_idcs'])):
-            reaction_to_ego.append(adjs[:, veh_calc:veh_calc + len(data['actor_idcs'][i][0]), veh_calc, :])
+            reaction_to_i = []
+            for j in range(len(data['actor_idcs'][i][0])):
+                reaction_to_i.append(adjs[:,  veh_calc + j, veh_calc:veh_calc + len(data['actor_idcs'][i][0]),:])
+            reaction_to_veh.append(reaction_to_i)
             veh_calc += len(data['actor_idcs'][i][0])
+        ## reaction to i_th vehicle from j_th vehicle in k_th batch : reaction_to_veh[k][i][:,j,:]
+        reaction_hiddens = self.SRF_net(reaction_to_veh)
+        reaction_hidden = []
+        for i in range(len(reaction_hiddens)):
+            reaction_hidden = reaction_hidden + reaction_hiddens[i]
 
-        reaction_to_ego = torch.transpose(torch.transpose(torch.cat(reaction_to_ego, dim=1), 0, 1), 1, 2)
-        reaction_hidden = self.SRF_net(reaction_to_ego)
-
-        # get ego future traj
-        ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i]), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
+        # get ego future traj and calc interaction
+        ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
         ego_fut = torch.cat(ego_fut, dim=0)
         ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
 
         # prediction
-        actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0) + reaction_hidden
-        out = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
-        if self.config["reactive"]:
+        actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
+        actors_cat_sur_inter = torch.zeros_like(actors_cat)
+        for i in range(len(actor_idcs)):
+            actor_base_hid = actors_cat[actor_idcs[i]]
+            for j in range(len(actor_idcs[i])):
+                inter_feat = reaction_hidden[actor_idcs[i][j]]
+                actors_cat_sur_inter[actor_idcs[i]] = actor_base_hid * inter_feat
 
-        rot, orig = gpu(data["rot"]), gpu(data["orig"])
-        # transform prediction to world coordinates
+        out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
+        out_sur_interact = self.pred_net(actors_cat_sur_inter, actor_idcs, actor_ctrs)
+
+
+        out_non_interact = self.get_world_cord(out_non_interact, data)
+        out_sur_interact = self.get_world_cord(out_non_interact, data)
+        return out
+
+    def get_world_cord(self, out, data):
+        rot, orig = gpu(data["rot"], self.config['gpu_id']), gpu(data["orig"], self.config['gpu_id'])
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
                 1, 1, 1, -1
@@ -151,9 +169,9 @@ def map_graph_gather(data):
 def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
     batch_size = len(actors)
     tot_veh_num = actor_idcs[-1][-1] + 1
-    node_feat_mask = gpu(torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map'])))
+    node_feat_mask = gpu(torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map'])), config['gpu_id'])
     gen_num = 0
-    adj_mask = gpu(torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor'])))
+    adj_mask = gpu(torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor'])), config['gpu_id'])
 
     maps = []
     for i in range(batch_size):
@@ -401,10 +419,43 @@ class SRF_net(nn.Module):
         self.out = nn.Sequential(*out)
 
     def forward(self, feats):
-        x = self.conv1d(feats)
-        out = self.out(x).squeeze()
+        hidden = []
+        for k in range(len(feats)):
+            to_i = []
+            for i in range(len(feats[k])):
+                in_data = torch.transpose(torch.transpose(feats[k][i], 0, 1), 1, 2)
+        # feats > (N,128, 20)
+                to_i.append(self.out(self.conv1d(in_data)).squeeze())
+            hidden.append(to_i)
 
-        return out
+        return hidden
+
+
+
+class SIN_net(nn.Module):
+    def __init__(self, config):
+        super(SIN_net, self).__init__()
+        self.config = config
+        self.W = nn.Parameter(torch.empty(size=(config["n_actor"], config["n_actor"])))
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        self.GAT = GAT(config["n_actor"] + config["n_map"],
+                       config["n_actor"],
+                       config["GAT_dropout"],
+                       config["GAT_Leakyrelu_alpha"],
+                       nTime=20,
+                       training=config["training"])
+
+    def forward(self, actors_cat, reaction_hidden, actor_idcs):
+
+        for i in range(len(actor_idcs)):
+            actor_base_hid = actors_cat[actor_idcs[i]]
+            for j in range(len(actor_idcs[i])):
+                inter_feat = reaction_hidden[actor_idcs[i][j]]
+                actors_cat[actor_idcs[i]] = actor_base_hid * inter_feat
+
+
+
+        return [feats, adjs]
 
 
 class PredNet(nn.Module):
@@ -595,7 +646,7 @@ class Loss(nn.Module):
         self.pred_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
+        loss_out = self.pred_loss(out, gpu(data["gt_preds"], self.config['gpu_id']), gpu(data["has_preds"], self.config['gpu_id']))
         loss_out["loss"] = loss_out["cls_loss"] / (
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)

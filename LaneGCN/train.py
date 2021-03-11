@@ -52,6 +52,7 @@ parser.add_argument(
 )
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
+parser.add_argument('--gpu_id', type=int, default=0)
 
 def main():
     seed = hvd.rank()
@@ -63,7 +64,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model()
+    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args.gpu_id)
 
     if config["horovod"]:
         opt.opt = hvd.DistributedOptimizer(
