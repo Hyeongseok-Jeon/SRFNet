@@ -66,8 +66,8 @@ def main():
 
     os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)    
 
-    # val(config)
-    # test(config)
+    val(config)
+    test(config)
     train(config)
 
 
@@ -105,12 +105,21 @@ def train(config):
                 store[key] = to_numpy(data[key][j])
                 if key in ["graph"]:
                     store[key] = to_int16(store[key])
+
+            if store['has_preds'][1,:].all():
+                pass
+            else:
+                print('pred error')
+                print(j)
+                pause()
             stores[store["idx"]] = store
 
         if (i + 1) % 100 == 0:
             print(i, time.time() - t)
             t = time.time()
 
+        if i > 100:
+            break
     dataset = PreprocessDataset(stores, config, train=True)
     data_loader = DataLoader(
         dataset,

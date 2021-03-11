@@ -143,7 +143,7 @@ class ArgoDataset(Dataset):
         av_step = steps[idcs_ego]
         agt_traj = trajs[idcs]
         agt_step = steps[idcs]
-
+        file_name = self.avl[idx].current_seq
         del keys[av_idx]
         del keys[agt_idx - 1]
         ctx_trajs, ctx_steps = [], []
@@ -156,6 +156,7 @@ class ArgoDataset(Dataset):
         data['city'] = city
         data['trajs'] = [av_traj] + [agt_traj] + ctx_trajs
         data['steps'] = [av_step] + [agt_step] + ctx_steps
+        data['file_name'] = file_name
         return data
 
     def get_obj_feats(self, data):
@@ -172,7 +173,9 @@ class ArgoDataset(Dataset):
             [np.sin(theta), np.cos(theta)]], np.float32)
 
         feats, ctrs, gt_preds, has_preds = [], [], [], []
-        for traj, step in zip(data['trajs'], data['steps']):
+        for i in range(len(data['trajs'])):
+            traj = data['trajs'][i]
+            step = data['steps'][i]
             if 19 not in step:
                 continue
 
@@ -202,8 +205,9 @@ class ArgoDataset(Dataset):
             feat[step, 2] = 1.0
 
             x_min, x_max, y_min, y_max = self.config['pred_range']
-            if feat[-1, 0] < x_min or feat[-1, 0] > x_max or feat[-1, 1] < y_min or feat[-1, 1] > y_max:
-                continue
+            if i > 1:
+                if feat[-1, 0] < x_min or feat[-1, 0] > x_max or feat[-1, 1] < y_min or feat[-1, 1] > y_max:
+                    continue
 
             ctrs.append(feat[-1, :2].copy())
             feat[1:, :2] -= feat[:-1, :2]
