@@ -66,8 +66,8 @@ def main():
 
     os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)
 
-    gen('val', config)
-    gen('test', config)
+    # gen('val', config)
+    # gen('test', config)
     gen('train', config)
 
 

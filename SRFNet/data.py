@@ -1,17 +1,14 @@
 # Copyright (c) 2020 Uber Technologies, Inc.
 # Please check LICENSE for more detail
 
-
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from scipy import sparse
-import os
 import copy
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from skimage.transform import rotate
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 
 class ArgoDataset(Dataset):
@@ -214,7 +211,7 @@ class ArgoDataset(Dataset):
 
             if j == 0:
                 ego_traj = data['trajs'][j]
-                ego_feat = np.zeros((50, 3), np.float32)
+                ego_feat = np.zeros((data['trajs'][j].shape[0], 3), np.float32)
                 ego_feat[:, :2] = np.matmul(rot, (ego_traj - orig.reshape(-1, 2)).T).T
                 ego_feat[:, 2] = 1.0
                 ego_feat[1:, :2] -= ego_feat[:-1, :2]

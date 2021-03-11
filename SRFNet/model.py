@@ -70,23 +70,22 @@ class Net(nn.Module):
         veh_calc = 0
         reaction_to_ego = []
         for i in range(len(data['actor_idcs'])):
-            reaction_to_ego.append(adjs[:,veh_calc:veh_calc+len(data['actor_idcs'][i][0]),veh_calc,:])
+            reaction_to_ego.append(adjs[:, veh_calc:veh_calc + len(data['actor_idcs'][i][0]), veh_calc, :])
             veh_calc += len(data['actor_idcs'][i][0])
 
-        reaction_to_ego = torch.transpose(torch.transpose(torch.cat(reaction_to_ego, dim = 1), 0,1), 1,2)
+        reaction_to_ego = torch.transpose(torch.transpose(torch.cat(reaction_to_ego, dim=1), 0, 1), 1, 2)
         reaction_hidden = self.SRF_net(reaction_to_ego)
 
         # get ego future traj
-        ego_fut = data['']
-        feat[step, :2] = np.matmul(data['rot'][0], (data['gt_preds'][0][0] - data['orig'][0].reshape(-1, 2)).T).T
-
-        if self.config["reactive"]:
-            actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + cn[1]
-        else:
-            actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + reaction_hidden
+        ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i]), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
+        ego_fut = torch.cat(ego_fut, dim=0)
+        ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
 
         # prediction
+        actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0) + reaction_hidden
         out = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
+        if self.config["reactive"]:
+
         rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
@@ -228,8 +227,10 @@ class ActorNet(nn.Module):
             out += self.lateral[i](outputs[i])
 
         out = self.output(out)[:, :, -1]
-        out_reform = self.reform_out(out, actor_idcs)
-        return out_reform
+        if actors.shape[0] != actor_idcs[-1][-1]+1:
+            out = self.reform_out(out, actor_idcs)
+
+        return out
 
     def reform_out(self, out, actor_idcs):
         veh_cnt = 0

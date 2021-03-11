@@ -1,36 +1,13 @@
-import argparse
-from torch.utils.data import DataLoader
-
-from torch.autograd import Variable
-import torch
-
-import pandas as pd
-from torch.utils.tensorboard import SummaryWriter
-import itertools
-import numpy as np
-import sys
-import pickle
 import warnings
-import time
-import datetime
 import os
-import json
 import argparse
 import numpy as np
-import random
 import sys
 
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 import time
-import shutil
-from importlib import import_module
-from numbers import Number
-from tqdm import tqdm
 import torch
-from torch.utils.data import Sampler, DataLoader
-import horovod.torch as hvd
-from torch.utils.data.distributed import DistributedSampler
-from mpi4py import MPI
+from torch.utils.data import DataLoader
 from SRFNet.data import ArgoDataset as Dataset, collate_fn
 from LaneGCN.lanegcn import PostProcess, pred_metrics
 from SRFNet.config import get_config
@@ -114,7 +91,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
             else:
                 sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
-                epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot/update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+                    epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
             data = dict(data)
             output = net(data)
@@ -176,6 +153,7 @@ def save_ckpt(net, opt, save_dir, epoch):
         {"epoch": epoch, "state_dict": state_dict, "opt_state": opt.opt.state_dict()},
         os.path.join(save_dir, save_name),
     )
+
 
 if __name__ == "__main__":
     main()
