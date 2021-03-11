@@ -67,15 +67,23 @@ class Net(nn.Module):
 
         # get temporal attention matrix
         [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
+        veh_calc = 0
+        reaction_to_ego = []
+        for i in range(len(data['actor_idcs'])):
+            reaction_to_ego.append(adjs[:,veh_calc:veh_calc+len(data['actor_idcs'][i][0]),veh_calc,:])
+            veh_calc += len(data['actor_idcs'][i][0])
 
-        reaction_to_ego = adjs[:, :, 0, :]
-        _, (hn, cn) = self.SRF_net(reaction_to_ego)
+        reaction_to_ego = torch.transpose(torch.transpose(torch.cat(reaction_to_ego, dim = 1), 0,1), 1,2)
+        reaction_hidden = self.SRF_net(reaction_to_ego)
+
+        # get ego future traj
+        ego_fut = data['']
+        feat[step, :2] = np.matmul(data['rot'][0], (data['gt_preds'][0][0] - data['orig'][0].reshape(-1, 2)).T).T
 
         if self.config["reactive"]:
-
             actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + cn[1]
         else:
-            actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + hn[0]
+            actors_cat = torch.cat([actors[i][:,-1,:] for i in range(len(actors))],dim = 0) + reaction_hidden
 
         # prediction
         out = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
@@ -363,13 +371,37 @@ class SRF_net(nn.Module):
         super(SRF_net, self).__init__()
         self.config = config
 
-        self.LSTM = nn.LSTM(input_size=128,
-                            hidden_size=128,
-                            num_layers=1).cuda()
+        conv = []
+        for i in range(config["SRF_conv_num"]):
+            conv.append(
+                nn.Sequential(
+                    nn.Conv1d(in_channels=config['n_actor'],
+                              out_channels=config['n_actor'],
+                              kernel_size=5,
+                              stride=1,
+                              padding=2),
+                    nn.ReLU(inplace=True)
+                )
+            )
+        self.conv1d = nn.Sequential(*conv)
+
+        out = []
+        for i in range(4):
+            out.append(
+                nn.Sequential(
+                    nn.Conv1d(in_channels=config['n_actor'],
+                              out_channels=config['n_actor'],
+                              kernel_size=4,
+                              stride=2,
+                              padding=1),
+                    nn.ReLU(inplace=True)
+                )
+            )
+        self.out = nn.Sequential(*out)
 
     def forward(self, feats):
-        feats = feats.contiguous()
-        out = self.LSTM(feats[1:, :, :], (torch.zeros_like(feats[0:1, :, :]), feats[0:1, :, :]))
+        x = self.conv1d(feats)
+        out = self.out(x).squeeze()
 
         return out
 

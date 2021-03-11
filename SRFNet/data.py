@@ -54,6 +54,8 @@ class ArgoDataset(Dataset):
                     [np.sin(-dt), np.cos(-dt)]], np.float32)
                 new_data['feats'] = data['feats'].copy()
                 new_data['feats'][:, :, :2] = np.matmul(new_data['feats'][:, :, :2], rot)
+                new_data['ego_feats'] = data['ego_feats'].copy()
+                new_data['ego_feats'][:, :, :2] = np.matmul(new_data['ego_feats'][:, :, :2], rot)
                 new_data['ctrs'] = np.matmul(data['ctrs'], rot)
 
                 graph = dict()
@@ -61,11 +63,12 @@ class ArgoDataset(Dataset):
                     graph[key] = ref_copy(data['graph'][key])
                 graph['ctrs'] = np.matmul(data['graph']['ctrs'], rot)
                 graph['feats'] = np.matmul(data['graph']['feats'], rot)
+                graph['ego_feats'] = np.matmul(data['ego_feats']['feats'], rot)
                 new_data['graph'] = graph
                 data = new_data
             else:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ctrs', 'graph']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = new_data
@@ -172,10 +175,10 @@ class ArgoDataset(Dataset):
             [np.cos(theta), -np.sin(theta)],
             [np.sin(theta), np.cos(theta)]], np.float32)
 
-        feats, ctrs, gt_preds, has_preds = [], [], [], []
-        for i in range(len(data['trajs'])):
-            traj = data['trajs'][i]
-            step = data['steps'][i]
+        feats, ctrs, gt_preds, has_preds, ego_feats = [], [], [], [], []
+        for j in range(len(data['trajs'])):
+            traj = data['trajs'][j]
+            step = data['steps'][j]
             if 19 not in step:
                 continue
 
@@ -209,6 +212,15 @@ class ArgoDataset(Dataset):
                 if feat[-1, 0] < x_min or feat[-1, 0] > x_max or feat[-1, 1] < y_min or feat[-1, 1] > y_max:
                     continue
 
+            if j == 0:
+                ego_traj = data['trajs'][j]
+                ego_feat = np.zeros((50, 3), np.float32)
+                ego_feat[:, :2] = np.matmul(rot, (ego_traj - orig.reshape(-1, 2)).T).T
+                ego_feat[:, 2] = 1.0
+                ego_feat[1:, :2] -= ego_feat[:-1, :2]
+                ego_feat[0, :2] = 0
+                ego_feats.append(ego_feat)
+
             ctrs.append(feat[-1, :2].copy())
             feat[1:, :2] -= feat[:-1, :2]
             feat[step[0], :2] = 0
@@ -217,11 +229,13 @@ class ArgoDataset(Dataset):
             has_preds.append(has_pred)
 
         feats = np.asarray(feats, np.float32)
+        ego_feats = np.asarray(ego_feats, np.float32)
         ctrs = np.asarray(ctrs, np.float32)
         gt_preds = np.asarray(gt_preds, np.float32)
         has_preds = np.asarray(has_preds, np.bool)
 
         data['feats'] = feats
+        data['ego_feats'] = ego_feats
         data['ctrs'] = ctrs
         data['orig'] = orig
         data['theta'] = theta

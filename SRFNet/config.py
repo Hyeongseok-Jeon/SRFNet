@@ -49,6 +49,7 @@ def get_config(root_path):
     config["GAT_dropout"] = 0.5
     config["GAT_Leakyrelu_alpha"] = 0.2
     config["GAT_num_head"] = config["n_actor"]
+    config["SRF_conv_num"] = 4
 
 
     file_path = os.path.abspath(os.curdir)
