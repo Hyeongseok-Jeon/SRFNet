@@ -187,7 +187,7 @@ def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
 
     maps = []
     for i in range(batch_size):
-        idx = data['feats'][i][:, :, 2:].cuda()
+        idx = data['feats'][i][:, :, 2:].cuda(config['gpu_id'] )
         idx = torch.repeat_interleave(idx, config['n_actor'], dim=-1)
         map_node_idx = graph["idcs"][i][data['nearest_ctrs_hist'][i].long()]
         map_node = nodes[map_node_idx]
