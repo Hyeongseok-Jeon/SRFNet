@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import sys
 
+sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 import time
 import torch
