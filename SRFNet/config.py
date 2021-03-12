@@ -1,7 +1,7 @@
 import os
 from LaneGCN.utils import gpu, to_long,  Optimizer, StepLR
 
-def get_config(root_path):
+def get_config(root_path, args):
     config = dict()
     # Preprocessed Dataset
     config['preprocess'] = True
@@ -15,18 +15,26 @@ def get_config(root_path):
     config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 
     # Data Loader setting
-    config["workers"] = 24
+    if args.location == 'home':
+        config["workers"] = 24
+    elif args.location == 'server':
+        config["workers"] = 64
+    elif args.location == 'simul':
+        config["workers"] = 16
     config["val_workers"] = config["workers"]
 
     # Training setting
-    config["batch_size"] = 4
-    config["val_batch_size"] = 4
-    config["num_epochs"] = 100
+    if args.location == 'home':
+        config["batch_size"] = 4
+        config["val_batch_size"] = 4
+    else:
+        config["batch_size"] = 12
+        config["val_batch_size"] = 12
+    config["num_epochs"] = 50
     config["opt"] = "adam"
     config["lr"] = [1e-3, 1e-4]
-    config["lr_epochs"] = [100]
+    config["lr_epochs"] = [50]
     config["lr_func"] = StepLR(config["lr"], config["lr_epochs"])
-    config["display_iters"] = 205942
     config["save_freq"] = 5
     config["display_iters"] = 1
     config["val_iters"] = 5

@@ -23,13 +23,14 @@ sys.path.insert(0, root_path)
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu_id', type=int, default=0)
 parser.add_argument('--memo', type=str, default='')
+parser.add_argument('--location', type=str, default='home')
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 
 
 def main():
-    config = get_config(root_path)
+    config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
     config["save_dir"] = config["save_dir"] + '_'+args.memo
     # post processing function
