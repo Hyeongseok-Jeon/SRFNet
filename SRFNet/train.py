@@ -21,6 +21,7 @@ sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu_id', type=int, default=0)
+parser.add_argument('--memo', type=str, default='')
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
@@ -29,6 +30,7 @@ args = parser.parse_args()
 def main():
     config = get_config(root_path)
     config['gpu_id'] = args.gpu_id
+    config["save_dir"] = config["save_dir"] + '_'+args.memo
     # post processing function
     post_process = PostProcess(config)
 
@@ -96,7 +98,13 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
 
             data = dict(data)
             _, output_non_interact, output_sur_interact, output_ego_interact = net(data)
-            loss_out = loss(output_non_interact, data)
+            if args.gpu_id == 0:
+                loss_out = loss(output_non_interact, data)
+            elif args.gpu_id == 1:
+                loss_out = loss(output_sur_interact, data)
+            elif args.gpu_id == 2:
+                loss_out = loss(output_ego_interact, data)
+
             post_out = post_process(output_non_interact, data)
             ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
                                                    np.concatenate(post_out['gt_preds'], 0),

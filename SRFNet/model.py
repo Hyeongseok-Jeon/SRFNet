@@ -56,13 +56,13 @@ class Net(nn.Module):
             actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc, self.config['gpu_id']))
             veh_calc += len(data['actor_idcs'][i][0])
         actors = self.actor_net(actors, actor_idcs)
-        print('a')
-        print(time.time()- init_time)
+        # print('a')
+        # print(time.time()- init_time)
         # construct map features
         graph = to_long(gpu(map_graph_gather(data), self.config['gpu_id']))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
-        print('b')
-        print(time.time()- init_time)
+        # print('b')
+        # print(time.time()- init_time)
 
         # concat actor and map features
         actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph, data)
@@ -77,16 +77,16 @@ class Net(nn.Module):
                 reaction_to_i.append(adjs[:,  veh_calc + j, veh_calc:veh_calc + len(data['actor_idcs'][i][0]),:])
             reaction_to_veh.append(reaction_to_i)
             veh_calc += len(data['actor_idcs'][i][0])
-        print('c')
-        print(time.time() - init_time)
+        # print('c')
+        # print(time.time() - init_time)
 
         ## reaction to i_th vehicle from j_th vehicle in k_th batch : reaction_to_veh[k][i][:,j,:]
         reaction_hiddens = self.SRF_net(reaction_to_veh)
         reaction_hidden = []
         for i in range(len(reaction_hiddens)):
             reaction_hidden = reaction_hidden + reaction_hiddens[i]
-        print('d')
-        print(time.time()- init_time)
+        # print('d')
+        # print(time.time()- init_time)
 
         # get ego future traj and calc interaction
         ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
@@ -108,8 +108,8 @@ class Net(nn.Module):
         out_ego_interact = dict()
         out_ego_interact['cls'] = out_sur_interact['cls']
         out_ego_interact['reg'] = [out_sur_interact['reg'][i] + out_ego_interact_tmp[i] for i in range(len(actor_idcs))]
-        print('e')
-        print(time.time()- init_time)
+        # print('e')
+        # print(time.time()- init_time)
 
         out_non_interact = self.get_world_cord(out_non_interact, data)
         out_sur_interact = self.get_world_cord(out_sur_interact, data)
