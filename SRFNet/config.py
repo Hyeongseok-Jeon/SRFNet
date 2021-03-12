@@ -19,8 +19,8 @@ def get_config(root_path):
     config["val_workers"] = config["workers"]
 
     # Training setting
-    config["batch_size"] = 4
-    config["val_batch_size"] = 4
+    config["batch_size"] = 16
+    config["val_batch_size"] = 16
     config["num_epochs"] = 100
     config["opt"] = "adam"
     config["lr"] = [1e-3, 1e-4]

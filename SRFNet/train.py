@@ -95,9 +95,9 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                     epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
             data = dict(data)
-            output = net(data)
-            loss_out = loss(output, data)
-            post_out = post_process(output, data)
+            _, output_non_interact, output_sur_interact, output_ego_interact = net(data)
+            loss_out = loss(output_non_interact, data)
+            post_out = post_process(output_non_interact, data)
             ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
                                                    np.concatenate(post_out['gt_preds'], 0),
                                                    np.concatenate(post_out['has_preds'], 0))
@@ -131,9 +131,9 @@ def val(config, data_loader, net, loss, post_process, epoch):
     for i, data in enumerate(data_loader):
         data = dict(data)
         with torch.no_grad():
-            output = net(data)
-            loss_out = loss(output, data)
-            post_out = post_process(output, data)
+            _, output_non_interact, output_sur_interact, output_ego_interact = net(data)
+            loss_out = loss(output_non_interact, data)
+            post_out = post_process(output_non_interact, data)
             post_process.append(metrics, loss_out, post_out)
 
     dt = time.time() - start_time

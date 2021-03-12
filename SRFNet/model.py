@@ -10,12 +10,9 @@ from torch.nn import functional as F
 from LaneGCN.layers import Conv1d, Res1d, Linear, LinearRes, Null
 from LaneGCN.utils import gpu, to_long, Optimizer, StepLR
 
-from data import ArgoDataset, collate_fn
-
-from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 from SRFNet.layer import GraphAttentionLayer
-
+import time
 
 class Net(nn.Module):
     """
@@ -44,12 +41,13 @@ class Net(nn.Module):
         self.actor_net = ActorNet(config)
         self.map_net = MapNet(config)
         self.tempAtt_net = TempAttNet(config)
-        self.SRF_net = SRF_net(config)
-        self.sur_interact_net = SIN_net(config)
+        self.SRF_net = SRFNet(config)
         self.pred_net = PredNet(config)
+        self.reaction_net = ReactNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
+        init_time = time.time()
         actors = torch.cat(gpu(data['actors'], self.config['gpu_id']), dim=0)
         actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
         actor_idcs = []
@@ -58,10 +56,13 @@ class Net(nn.Module):
             actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc, self.config['gpu_id']))
             veh_calc += len(data['actor_idcs'][i][0])
         actors = self.actor_net(actors, actor_idcs)
-
+        print('a')
+        print(time.time()- init_time)
         # construct map features
         graph = to_long(gpu(map_graph_gather(data), self.config['gpu_id']))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
+        print('b')
+        print(time.time()- init_time)
 
         # concat actor and map features
         actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph, data)
@@ -76,11 +77,16 @@ class Net(nn.Module):
                 reaction_to_i.append(adjs[:,  veh_calc + j, veh_calc:veh_calc + len(data['actor_idcs'][i][0]),:])
             reaction_to_veh.append(reaction_to_i)
             veh_calc += len(data['actor_idcs'][i][0])
+        print('c')
+        print(time.time() - init_time)
+
         ## reaction to i_th vehicle from j_th vehicle in k_th batch : reaction_to_veh[k][i][:,j,:]
         reaction_hiddens = self.SRF_net(reaction_to_veh)
         reaction_hidden = []
         for i in range(len(reaction_hiddens)):
             reaction_hidden = reaction_hidden + reaction_hiddens[i]
+        print('d')
+        print(time.time()- init_time)
 
         # get ego future traj and calc interaction
         ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
@@ -98,11 +104,17 @@ class Net(nn.Module):
 
         out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
         out_sur_interact = self.pred_net(actors_cat_sur_inter, actor_idcs, actor_ctrs)
-
+        out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat, actor_idcs)
+        out_ego_interact = dict()
+        out_ego_interact['cls'] = out_sur_interact['cls']
+        out_ego_interact['reg'] = [out_sur_interact['reg'][i] + out_ego_interact_tmp[i] for i in range(len(actor_idcs))]
+        print('e')
+        print(time.time()- init_time)
 
         out_non_interact = self.get_world_cord(out_non_interact, data)
-        out_sur_interact = self.get_world_cord(out_non_interact, data)
-        return out
+        out_sur_interact = self.get_world_cord(out_sur_interact, data)
+        out_ego_interact = self.get_world_cord(out_ego_interact, data)
+        return [one_step_feats, out_non_interact, out_sur_interact, out_ego_interact]
 
     def get_world_cord(self, out, data):
         rot, orig = gpu(data["rot"], self.config['gpu_id']), gpu(data["orig"], self.config['gpu_id'])
@@ -385,9 +397,9 @@ class TempAttNet(nn.Module):
         return [feats, adjs]
 
 
-class SRF_net(nn.Module):
+class SRFNet(nn.Module):
     def __init__(self, config):
-        super(SRF_net, self).__init__()
+        super(SRFNet, self).__init__()
         self.config = config
 
         conv = []
@@ -429,33 +441,6 @@ class SRF_net(nn.Module):
             hidden.append(to_i)
 
         return hidden
-
-
-
-class SIN_net(nn.Module):
-    def __init__(self, config):
-        super(SIN_net, self).__init__()
-        self.config = config
-        self.W = nn.Parameter(torch.empty(size=(config["n_actor"], config["n_actor"])))
-        nn.init.xavier_uniform_(self.W.data, gain=1.414)
-        self.GAT = GAT(config["n_actor"] + config["n_map"],
-                       config["n_actor"],
-                       config["GAT_dropout"],
-                       config["GAT_Leakyrelu_alpha"],
-                       nTime=20,
-                       training=config["training"])
-
-    def forward(self, actors_cat, reaction_hidden, actor_idcs):
-
-        for i in range(len(actor_idcs)):
-            actor_base_hid = actors_cat[actor_idcs[i]]
-            for j in range(len(actor_idcs[i])):
-                inter_feat = reaction_hidden[actor_idcs[i][j]]
-                actors_cat[actor_idcs[i]] = actor_base_hid * inter_feat
-
-
-
-        return [feats, adjs]
 
 
 class PredNet(nn.Module):
@@ -517,6 +502,52 @@ class PredNet(nn.Module):
             out["reg"].append(reg[idcs])
         return out
 
+
+class ReactNet(nn.Module):
+    def __init__(self, config):
+        super(ReactNet, self).__init__()
+        self.config = config
+        norm = "GN"
+        ng = 1
+
+        n_actor = config["n_actor"]
+
+        self.react_pred = nn.LSTM(input_size=config["n_actor"],
+                                  hidden_size=config["n_actor"],
+                                  num_layers=1,
+                                  bias=True,
+                                  batch_first=False,
+                                  dropout=0,
+                                  bidirectional=False)
+
+        pred = []
+        for i in range(config["num_mods"]):
+            pred.append(
+                nn.Sequential(
+                    LinearRes(n_actor, n_actor, norm=norm, ng=ng),
+                    nn.Linear(n_actor, 2),
+                )
+            )
+        self.pred = nn.ModuleList(pred)
+
+
+    def forward(self, reaction_hidden, ego_feat, actor_idcs):
+        reaction_against_ego = torch.cat([x[0, :].unsqueeze(dim=0) for x in reaction_hidden], dim=0).unsqueeze(dim=0)
+        ego_feat_time_cat = torch.cat([x.unsqueeze(dim=0) for x in ego_feat])
+
+        react_feat, (hn, cn) = self.react_pred(ego_feat_time_cat, (torch.zeros_like(reaction_against_ego), reaction_against_ego))
+
+        reacts = []
+        for i in range(len(self.pred)):
+            reacts_cand = torch.cat([self.pred[i](react_feat[j]).unsqueeze(dim=0) for j in range(30)], dim=0)
+            reacts.append(reacts_cand.unsqueeze(dim=0))
+        reacts = torch.cat(reacts, dim=0)
+
+        reacts_mod = []
+        for i in range(len(actor_idcs)):
+            reacts_mod.append(torch.transpose(torch.transpose(reacts[:,:,actor_idcs[i],:], 1, 2), 0, 1))
+
+        return reacts_mod
 
 class AttDest(nn.Module):
     def __init__(self, n_agt: int):
