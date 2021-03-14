@@ -95,18 +95,19 @@ def data_gen(config, train_loader, net, path):
         arrow = '-' * int(percent / 100 * 20 - 1) + '>'
         spaces = ' ' * (20 - len(arrow))
         if i == 0:
-            sys.stdout.write('\n' + 'Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
+            sys.stdout.write('\n' + 'Progress: [%s%s] %d %%  time: %f sec   ' + data['file_name'] % (arrow, spaces, percent, time.time() - init_time))
         else:
-            sys.stdout.write('\n' + 'Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
+            sys.stdout.write('\n' + 'Progress: [%s%s] %d %%  time: %f sec   ' + data['file_name'] % (arrow, spaces, percent, time.time() - init_time))
 
         data = dict(data)
-        [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs] = net(data)
+        [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs, ego_feat] = net(data)
 
         data['actors_hidden'] = actors_hidden
         data['node'] = nodes
         data['node_idcs'] = node_idcs
         data['node_ctrs'] = node_ctrs
         data['graph_idcs'] = graph_idcs
+        data['ego_feat'] = ego_feat
         _, file_name = os.path.split(data['file_name'][0])
         file_name = file_name[:-4]
         with open(path + '/'+file_name+'.pickle', 'wb') as f:

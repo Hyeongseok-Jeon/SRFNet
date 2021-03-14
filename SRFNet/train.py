@@ -15,7 +15,7 @@ from SRFNet.data import ArgoDataset as Dataset, collate_fn
 from LaneGCN.lanegcn import PostProcess, pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer
-from SRFNet.model import Net_min, Loss
+from SRFNet.model import Net_min, Loss, Net
 
 warnings.filterwarnings("ignore")
 
@@ -58,7 +58,7 @@ def main():
                             shuffle=True,
                             pin_memory=True)
 
-    net = Net_min(config)
+    net = Net(config)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()

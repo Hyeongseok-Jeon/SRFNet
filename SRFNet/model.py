@@ -28,7 +28,7 @@ class Net_min(nn.Module):
         self.pred_net = PredNet(config)
         self.reaction_net = ReactNet(config)
 
-    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+    def forward(self, data: Dict):
         # construct actor feature
         actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
         actor_idcs = []
@@ -39,6 +39,7 @@ class Net_min(nn.Module):
         actors = gpu(data['actors_hidden'], self.config['gpu_id'])
         nodes = gpu(data['nodes'], self.config['gpu_id'])
         graph_idcs = gpu(data['graph_idcs'], self.config['gpu_id'])
+        ego_feat = gpu(data['ego_feat'], self.config['gpu_id'])
 
         # concat actor and map features
         actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, data)
@@ -59,11 +60,6 @@ class Net_min(nn.Module):
         reaction_hidden = []
         for i in range(len(reaction_hiddens)):
             reaction_hidden = reaction_hidden + reaction_hiddens[i]
-
-        # get ego future traj and calc interaction
-        ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
-        ego_fut = torch.cat(ego_fut, dim=0)
-        ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
 
         # prediction
         actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
@@ -201,7 +197,6 @@ class pre_net(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        init_time = time.time()
         actors = torch.cat(gpu(data['actors'], self.config['gpu_id']), dim=0)
         actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
         actor_idcs = []
@@ -214,7 +209,11 @@ class pre_net(nn.Module):
         graph = to_long(gpu(map_graph_gather(data), self.config['gpu_id']))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"]]
+        ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
+        ego_fut = torch.cat(ego_fut, dim=0)
+        ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
+
+        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"], ego_feat]
 
 
 def map_graph_gather(data):
