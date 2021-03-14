@@ -5,8 +5,11 @@ import sys
 
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
+sys.path.extend(['/home/user/Desktop/SRFNet'])
+sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
+
 import time
 import torch
 from torch.utils.data import DataLoader
