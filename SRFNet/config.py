@@ -23,6 +23,7 @@ def get_config(root_path, args):
         config["workers"] = 16
     config["val_workers"] = config["workers"]
 
+
     # Training setting
     if args.location == 'home':
         config["batch_size"] = 4
@@ -30,6 +31,9 @@ def get_config(root_path, args):
     else:
         config["batch_size"] = 6
         config["val_batch_size"] = 6
+
+    if args.pre == True:
+        config["batch_size"] = 1
     config["num_epochs"] = 50
     config["opt"] = "adam"
     config["lr"] = [1e-3, 1e-4]

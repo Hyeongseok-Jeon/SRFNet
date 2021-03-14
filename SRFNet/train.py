@@ -15,7 +15,7 @@ from SRFNet.data import ArgoDataset as Dataset, collate_fn
 from LaneGCN.lanegcn import PostProcess, pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer
-from SRFNet.model import Net, Loss
+from SRFNet.model import Net_min, Loss
 
 warnings.filterwarnings("ignore")
 
@@ -26,6 +26,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--gpu_id', type=int, default=0)
 parser.add_argument('--memo', type=str, default='')
 parser.add_argument('--location', type=str, default='home')
+parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
@@ -57,7 +58,7 @@ def main():
                             shuffle=True,
                             pin_memory=True)
 
-    net = Net(config)
+    net = Net_min(config)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()
@@ -101,15 +102,9 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                     epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
             data = dict(data)
-            _, output_non_interact, output_sur_interact, output_ego_interact = net(data)
-            if args.gpu_id == 0:
-                loss_out = loss(output_non_interact, data)
-            elif args.gpu_id == 1:
-                loss_out = loss(output_sur_interact, data)
-            elif args.gpu_id == 2:
-                loss_out = loss(output_ego_interact, data)
-
-            post_out = post_process(output_non_interact, data)
+            out = net(data)
+            loss_out = loss(out, data)
+            post_out = post_process(out, data)
             ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
                                                    np.concatenate(post_out['gt_preds'], 0),
                                                    np.concatenate(post_out['has_preds'], 0))

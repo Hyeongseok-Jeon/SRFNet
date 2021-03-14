@@ -14,26 +14,92 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 from SRFNet.layer import GraphAttentionLayer
 import time
 
-class Net(nn.Module):
-    """
-    Lane Graph Network contains following components:
-        1. ActorNet: a 1D CNN to process the trajectory input
-        2. MapNet: LaneGraphCNN to learn structured map representations
-           from vectorized map data
-        3. Actor-Map Fusion Cycle: fuse the information between actor nodes
-           and lane nodes:
-            a. A2M: introduces real-time traffic information to
-                lane nodes, such as blockage or usage of the lanes
-            b. M2M:  updates lane node features by propagating the
-                traffic information over lane graphs
-            c. M2A: fuses updated map features with real-time traffic
-                information back to actors
-            d. A2A: handles the interaction between actors and produces
-                the output actor features
-        4. PredNet: prediction header for motion forecasting using
-           feature from A2A
-    """
 
+
+class Net_min(nn.Module):
+    def __init__(self, config):
+        super(Net_min, self).__init__()
+        self.config = config
+
+        self.actor_net = ActorNet(config)
+        self.map_net = MapNet(config)
+        self.tempAtt_net = TempAttNet(config)
+        self.SRF_net = SRFNet(config)
+        self.pred_net = PredNet(config)
+        self.reaction_net = ReactNet(config)
+
+    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+        # construct actor feature
+        actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
+        actor_idcs = []
+        veh_calc = 0
+        for i in range(len(data['actor_idcs'])):
+            actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc, self.config['gpu_id']))
+            veh_calc += len(data['actor_idcs'][i][0])
+        actors = gpu(data['actors_hidden'], self.config['gpu_id'])
+        nodes = gpu(data['nodes'], self.config['gpu_id'])
+        graph_idcs = gpu(data['graph_idcs'], self.config['gpu_id'])
+
+        # concat actor and map features
+        actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, data)
+
+        # get temporal attention matrix
+        [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
+        veh_calc = 0
+        reaction_to_veh = []
+        for i in range(len(data['actor_idcs'])):
+            reaction_to_i = []
+            for j in range(len(data['actor_idcs'][i][0])):
+                reaction_to_i.append(adjs[:,  veh_calc + j, veh_calc:veh_calc + len(data['actor_idcs'][i][0]),:])
+            reaction_to_veh.append(reaction_to_i)
+            veh_calc += len(data['actor_idcs'][i][0])
+
+        # reaction to i_th vehicle from j_th vehicle in k_th batch : reaction_to_veh[k][i][:,j,:]
+        reaction_hiddens = self.SRF_net(reaction_to_veh)
+        reaction_hidden = []
+        for i in range(len(reaction_hiddens)):
+            reaction_hidden = reaction_hidden + reaction_hiddens[i]
+
+        # get ego future traj and calc interaction
+        ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
+        ego_fut = torch.cat(ego_fut, dim=0)
+        ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
+
+        # prediction
+        actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
+
+        if self.config['gpu_id'] == 0:
+            out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
+            out_non_interact = self.get_world_cord(out_non_interact, data)
+            return out_non_interact
+        else:
+            actors_cat_sur_inter = torch.zeros_like(actors_cat)
+            for i in range(len(actor_idcs)):
+                actor_base_hid = actors_cat[actor_idcs[i]]
+                for j in range(len(actor_idcs[i])):
+                    inter_feat = reaction_hidden[actor_idcs[i][j]]
+                    actors_cat_sur_inter[actor_idcs[i]] = actor_base_hid * inter_feat
+            out_sur_interact = self.pred_net(actors_cat_sur_inter, actor_idcs, actor_ctrs)
+            if self.config['gpu_id'] == 1:
+                out_sur_interact = self.get_world_cord(out_sur_interact, data)
+                return out_sur_interact
+            elif self.config['gpu_id'] == 2:
+                out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat, actor_idcs)
+                out_ego_interact = dict()
+                out_ego_interact['cls'] = out_sur_interact['cls']
+                out_ego_interact['reg'] = [out_sur_interact['reg'][i] + out_ego_interact_tmp[i] for i in range(len(actor_idcs))]
+                out_ego_interact = self.get_world_cord(out_ego_interact, data)
+                return out_ego_interact
+
+    def get_world_cord(self, out, data):
+        rot, orig = gpu(data["rot"], self.config['gpu_id']), gpu(data["orig"], self.config['gpu_id'])
+        for i in range(len(out["reg"])):
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
+                1, 1, 1, -1
+            )
+        return out
+
+class Net(nn.Module):
     def __init__(self, config):
         super(Net, self).__init__()
         self.config = config
@@ -65,7 +131,7 @@ class Net(nn.Module):
         # print(time.time()- init_time)
 
         # concat actor and map features
-        actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph, data)
+        actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph["idcs"], data)
 
         # get temporal attention matrix
         [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
@@ -125,6 +191,32 @@ class Net(nn.Module):
         return out
 
 
+class pre_net(nn.Module):
+    def __init__(self, config):
+        super(pre_net, self).__init__()
+        self.config = config
+
+        self.actor_net = ActorNet(config)
+        self.map_net = MapNet(config)
+
+    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+        # construct actor feature
+        init_time = time.time()
+        actors = torch.cat(gpu(data['actors'], self.config['gpu_id']), dim=0)
+        actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
+        actor_idcs = []
+        veh_calc = 0
+        for i in range(len(data['actor_idcs'])):
+            actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc, self.config['gpu_id']))
+            veh_calc += len(data['actor_idcs'][i][0])
+        actors_hidden = self.actor_net(actors, actor_idcs)
+
+        graph = to_long(gpu(map_graph_gather(data), self.config['gpu_id']))
+        nodes, node_idcs, node_ctrs = self.map_net(graph)
+
+        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"]]
+
+
 def map_graph_gather(data):
     map_node_cnt = [0]
     veh_cnt = 0
@@ -178,7 +270,7 @@ def map_graph_gather(data):
     return graph_mod
 
 
-def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
+def actor_graph_gather(actors, nodes, actor_idcs, config, graph_idcs, data):
     batch_size = len(actors)
     tot_veh_num = actor_idcs[-1][-1] + 1
     node_feat_mask = gpu(torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map'])), config['gpu_id'])
@@ -189,7 +281,7 @@ def actor_graph_gather(actors, nodes, actor_idcs, config, graph, data):
     for i in range(batch_size):
         idx = data['feats'][i][:, :, 2:].cuda(config['gpu_id'] )
         idx = torch.repeat_interleave(idx, config['n_actor'], dim=-1)
-        map_node_idx = graph["idcs"][i][data['nearest_ctrs_hist'][i].long()]
+        map_node_idx = graph_idcs[i][data['nearest_ctrs_hist'][i].long()]
         map_node = nodes[map_node_idx]
         maps.append(map_node * idx)
 
