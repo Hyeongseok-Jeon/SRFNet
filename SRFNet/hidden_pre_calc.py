@@ -101,24 +101,17 @@ def data_gen(config, train_loader, net, path):
             sys.stdout.write('\n' + 'Progress: [%s%s] %d %%  time: %f sec  %s '% (arrow, spaces, percent, time.time() - init_time,  str(data['file_name'][0])))
         else:
             sys.stdout.write('\r' + 'Progress: [%s%s] %d %%  time: %f sec  %s '% (arrow, spaces, percent, time.time() - init_time,  str(data['file_name'][0])))
-        _, file_name = os.path.split(data['file_name'][0])
-        file_name = file_name[:-4]
-        # if '45638' in str(data['file_name'][0]):
-        #     print('got it')
-        #     time.sleep(100)
-        try:
-            [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs] = net(data)
-        except:
-            with open(path + '/' + file_name + 'err.pickle', 'wb') as f:
-                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
-            pass
-        # 131251
+
+        data = dict(data)
+        [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs] = net(data)
+
         data['actors_hidden'] = cpu([x.detach() for x in actors_hidden])
         data['node'] = cpu(nodes.detach())
         data['node_idcs'] = cpu([x.detach() for x in node_idcs])
         data['node_ctrs'] = cpu([x.detach() for x in node_ctrs])
         data['graph_idcs'] = cpu([x.detach() for x in graph_idcs])
-
+        _, file_name = os.path.split(data['file_name'][0])
+        file_name = file_name[:-4]
         with open(path + '/'+file_name+'.pickle', 'wb') as f:
             pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
