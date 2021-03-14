@@ -133,12 +133,6 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             loss_out["loss"].backward()
             lr = opt.step(epoch)
 
-        if epoch % display_iters == display_iters - 1:
-            dt = time.time() - start_time
-            post_process.display(metrics, dt, epoch, lr)
-            start_time = time.time()
-            metrics = dict()
-
         if epoch % val_iters == val_iters - 1:
             save_ckpt(net, opt, config["save_dir"], epoch)
             val(config, val_loader, net, loss, post_process, epoch)
