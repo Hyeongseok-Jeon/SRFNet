@@ -6,8 +6,11 @@ import sys
 
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
+sys.path.extend(['/home/user/Desktop/SRFNet'])
+sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
+
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -36,27 +39,34 @@ args = parser.parse_args()
 def main():
     config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
-    config["save_dir"] = config["save_dir"] + '_'+args.memo
+    config["save_dir"] = config["save_dir"] + '_' + args.memo
     # post processing function
     post_process = PostProcess(config)
 
-    # data loader for training
-    # train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"], config)
-    # train_loader = DataLoader(train_dataset,
-    #                         batch_size=config["val_batch_size"],
-    #                         num_workers=config["val_workers"],
-    #                         collate_fn=batch_form,
-    #                         shuffle=True,
-    #                         pin_memory=True)
-
-    # Data loader for validation
-    debug_dataset = TrajectoryDataset(config["val_meta"], config["data_root"], config)
-    debug_loader = DataLoader(debug_dataset,
-                            batch_size=config["val_batch_size"],
-                            num_workers=config["val_workers"],
-                            collate_fn=batch_form,
-                            shuffle=True,
-                            pin_memory=True)
+    if args.location == 'home':
+        debug_dataset = TrajectoryDataset(config["val_meta"], config["data_root"], config)
+        debug_loader = DataLoader(debug_dataset,
+                                  batch_size=config["val_batch_size"],
+                                  num_workers=config["val_workers"],
+                                  collate_fn=batch_form,
+                                  shuffle=True,
+                                  pin_memory=True)
+    else:
+        # data loader for training
+        train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"], config)
+        train_loader = DataLoader(train_dataset,
+                                  batch_size=config["val_batch_size"],
+                                  num_workers=config["val_workers"],
+                                  collate_fn=batch_form,
+                                  shuffle=True,
+                                  pin_memory=True)
+        val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"], config)
+        val_loader = DataLoader(val_dataset,
+                                batch_size=config["val_batch_size"],
+                                num_workers=config["val_workers"],
+                                collate_fn=batch_form,
+                                shuffle=True,
+                                pin_memory=True)
 
     net = Net_min(config)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
@@ -69,18 +79,15 @@ def main():
 
     opt = Optimizer(net.parameters(), config)
     loss = Loss_light(config)
-
-    train(config, debug_loader, net, loss, post_process, opt, debug_loader)
+    if args.location == 'home':
+        train(config, debug_loader, net, loss, post_process, opt, debug_loader)
+    else:
+        train(config, train_loader, net, loss, post_process, opt, val_loader)
 
 
 def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     net.train()
-
-    display_iters = config["display_iters"]
     val_iters = config["val_iters"]
-
-    start_time = time.time()
-    metrics = dict()
     batch_num = len(train_loader.dataset)
     for epoch in range(config['num_epochs']):
         update_num = 0
@@ -101,23 +108,23 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
                     epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
-            actor_ctrs = gpu(data['actor_ctrs'], gpu_id = config['gpu_id'])
-            actor_idcs = gpu(data['actor_idcs'], gpu_id = config['gpu_id'])
-            actors = gpu(data['actors'], gpu_id = config['gpu_id'])
-            nodes = gpu(data['nodes'], gpu_id = config['gpu_id'])
-            graph_idcs = gpu(data['graph_idcs'], gpu_id = config['gpu_id'])
-            ego_feat = gpu(data['ego_feat'], gpu_id = config['gpu_id'])
-            feats = gpu(data['feats'], gpu_id = config['gpu_id'])
-            nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id = config['gpu_id'])
-            rot = gpu(data['rot'], gpu_id = config['gpu_id'])
-            orig = gpu(data['orig'], gpu_id = config['gpu_id'])
-            gt_preds = gpu(data['gt_preds'], gpu_id = config['gpu_id'])
-            has_preds = gpu(data['has_preds'], gpu_id = config['gpu_id'])
+            actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
+            actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
+            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
+            graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
+            ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
+            feats = gpu(data['feats'], gpu_id=config['gpu_id'])
+            nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
+            rot = gpu(data['rot'], gpu_id=config['gpu_id'])
+            orig = gpu(data['orig'], gpu_id=config['gpu_id'])
+            gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
+            has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
 
             inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig]
             out = net(inputs)
             loss_out = loss(out, gt_preds, has_preds)
-            post_out = post_process(out,gt_preds, has_preds)
+            post_out = post_process(out, gt_preds, has_preds)
             ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
                                                    np.concatenate(post_out['gt_preds'], 0),
                                                    np.concatenate(post_out['has_preds'], 0))
@@ -141,17 +148,58 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
 def val(config, data_loader, net, loss, post_process, epoch):
     net.eval()
     start_time = time.time()
-    metrics = dict()
-    for i, data in enumerate(data_loader):
-        data = dict(data)
-        with torch.no_grad():
-            _, output_non_interact, output_sur_interact, output_ego_interact = net(data)
-            loss_out = loss(output_non_interact, data)
-            post_out = post_process(output_non_interact, data)
-            post_process.append(metrics, loss_out, post_out)
+    update_num = 0
+    ade1_tot = 0
+    fde1_tot = 0
+    ade_tot = 0
+    fde_tot = 0
+    loss_tot = 0
+    batch_num = len(data_loader.dataset)
+    init_time = time.time()
 
-    dt = time.time() - start_time
-    post_process.display(metrics, dt, epoch)
+    for i, data in enumerate(data_loader):
+        current = (i + 1) * config['batch_size']
+        percent = float(current) * 100 / batch_num
+        arrow = '-' * int(percent / 100 * 20 - 1) + '>'
+        spaces = ' ' * (20 - len(arrow))
+        if i == 0:
+            sys.stdout.write('\n' + ' Validation Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
+        else:
+            sys.stdout.write('\r' + ' Validation Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+
+
+        data = dict(data)
+        actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
+        actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
+        actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+        nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
+        graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
+        ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
+        feats = gpu(data['feats'], gpu_id=config['gpu_id'])
+        nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
+        rot = gpu(data['rot'], gpu_id=config['gpu_id'])
+        orig = gpu(data['orig'], gpu_id=config['gpu_id'])
+        gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
+        has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
+
+        with torch.no_grad():
+            inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig]
+            out = net(inputs)
+            loss_out = loss(out, gt_preds, has_preds)
+            post_out = post_process(out, gt_preds, has_preds)
+            ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                   np.concatenate(post_out['gt_preds'], 0),
+                                                   np.concatenate(post_out['has_preds'], 0))
+            ade1_tot += ade1 * len(data["city"])
+            fde1_tot += fde1 * len(data["city"])
+            ade_tot += ade * len(data["city"])
+            fde_tot += fde * len(data["city"])
+            loss_tot += loss_out["loss"].item() * len(data["city"])
+            update_num += len(data["city"])
+    sys.stdout.write('\r' + ' Validation is completed: [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+        loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+
     net.train()
 
 
