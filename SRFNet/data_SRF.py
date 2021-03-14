@@ -4,12 +4,13 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
-
+from LaneGCN.utils import gpu
 
 class TrajectoryDataset(Dataset):
-    def __init__(self, meta_file_dir, root_dir):
+    def __init__(self, meta_file_dir, root_dir, config):
         self.meta = pd.read_csv(meta_file_dir, header=None, prefix="var")
         self.root_dir = root_dir
+        self.config = config
 
     def __len__(self):
         return len(self.meta)
@@ -26,22 +27,49 @@ class TrajectoryDataset(Dataset):
         sample = {'actor_ctrs': data['ctrs'],
                   'actor_idcs': data['actor_idcs'],
                   'actors': data['actors_hidden'],
-                  'nodes': data['nodes'],
+                  'nodes': data['node'],
                   'graph_idcs': data['graph_idcs'],
                   'ego_feat': data['ego_feats'],
-                  'file_name': data['file_name']}
-
+                  'nearest_ctrs_hist': data['nearest_ctrs_hist'],
+                  'feats' : data['feats'],
+                  'file_name': data['file_name'],
+                  'rot': data['rot'],
+                  'orig': data['orig'],
+                  'gt_preds': data['gt_preds'],
+                  'has_preds': data['has_preds'],
+                  'city': data['city']}
         return sample
 
+
 def batch_form(samples):
-    actors = np.concatenate([sample['actors'] for sample in samples], dim=0)
-    actor_idcs = [sample['actor_idcs'] for sample in samples]
-    actor_ctrs = [sample['actor_ctrs'] for sample in samples]
-    file_name = [sample['file_name'] for sample in samples]
+    actors = [sample['actors'][0] for sample in samples]
+    actor_idcs = [sample['actor_idcs'][0][0] for sample in samples]
+    actor_ctrs = [sample['actor_ctrs'][0] for sample in samples]
+    file_name = [sample['file_name'][0] for sample in samples]
+    nodes = torch.cat([sample['nodes'] for sample in samples], dim=0)
+    graph_idcs = [sample['graph_idcs'][0] for sample in samples]
+    ego_feats = [sample['ego_feat'][0] for sample in samples]
+    nearest_ctrs_hist = [sample['nearest_ctrs_hist'][0] for sample in samples]
+    feats = [sample['feats'][0] for sample in samples]
+    rot = [sample['rot'] for sample in samples]
+    orig = [sample['orig'] for sample in samples]
+    gt_preds = [sample['gt_preds'][0] for sample in samples]
+    has_preds = [sample['has_preds'][0] for sample in samples]
+    city = [sample['city'] for sample in samples]
 
+    sample_mod = {'actor_ctrs': actor_ctrs,
+                  'actor_idcs': actor_idcs,
+                  'actors': actors,
+                  'nodes': nodes,
+                  'graph_idcs': graph_idcs,
+                  'ego_feat': ego_feats,
+                  'file_name': file_name,
+                  'feats': feats,
+                  'nearest_ctrs_hist': nearest_ctrs_hist,
+                  'rot': rot,
+                  'orig': orig,
+                  'gt_preds': gt_preds,
+                  'has_preds': has_preds,
+                  'city': city}
 
-    return {'fut_traj': torch.from_numpy(fut_traj_batch),
-            'ref_path': torch.from_numpy(ref_path_batch),
-            'ref_maneuver': torch.from_numpy(ref_maneuver_batch),
-            'file_name': file_name_lists,
-            'nan_file_name': nan_file_name_lists}
+    return sample_mod

@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from SRFNet.data import ArgoDataset as Dataset, collate_fn
 from LaneGCN.lanegcn import PostProcess, pred_metrics
 from SRFNet.config import get_config
-from LaneGCN.utils import Optimizer
+from LaneGCN.utils import Optimizer, cpu
 from SRFNet.model import pre_net, Loss
 import pickle
 
@@ -102,11 +102,11 @@ def data_gen(config, train_loader, net, path):
         data = dict(data)
         [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs] = net(data)
 
-        data['actors_hidden'] = actors_hidden
-        data['node'] = nodes
-        data['node_idcs'] = node_idcs
-        data['node_ctrs'] = node_ctrs
-        data['graph_idcs'] = graph_idcs
+        data['actors_hidden'] = cpu([x.detach() for x in actors_hidden])
+        data['node'] = cpu(nodes.detach())
+        data['node_idcs'] = cpu([x.detach() for x in node_idcs])
+        data['node_ctrs'] = cpu([x.detach() for x in node_ctrs])
+        data['graph_idcs'] = cpu([x.detach() for x in graph_idcs])
         _, file_name = os.path.split(data['file_name'][0])
         file_name = file_name[:-4]
         with open(path + '/'+file_name+'.pickle', 'wb') as f:

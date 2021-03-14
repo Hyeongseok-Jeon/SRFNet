@@ -11,8 +11,14 @@ def get_config(root_path, args):
 
     # Raw Dataset
     config["train_split"] = os.path.join(root_path, "dataset/train/data")
+    config["train_meta"] = os.path.join(root_path, "SRFNet/dataset/preprocess/data_meta_train.csv")
     config["val_split"] = os.path.join(root_path, "dataset/val/data")
+    config["val_meta"] = os.path.join(root_path, "SRFNet/dataset/preprocess/data_meta_val.csv")
     config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
+    config["test_meta"] = os.path.join(root_path, "SRFNet/dataset/preprocess/data_meta_test.csv")
+
+    config["data_root"] = os.path.join(root_path, "SRFNet/dataset/preprocess/val")
+
 
     # Data Loader setting
     if args.location == 'home':

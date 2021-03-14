@@ -72,6 +72,19 @@ def gpu(data, gpu_id):
         data = data.contiguous().cuda(device=gpu_id, non_blocking=True)
     return data
 
+def cpu(data):
+    """
+    Transfer tensor in `data` to gpu recursively
+    `data` can be dict, list or tuple
+    """
+    if isinstance(data, list) or isinstance(data, tuple):
+        data = [cpu(x) for x in data]
+    elif isinstance(data, dict):
+        data = {key:cpu(_data) for key,_data in data.items()}
+    elif isinstance(data, torch.Tensor):
+        data = data.contiguous().cpu()
+    return data
+
 
 def to_long(data):
     if isinstance(data, dict):

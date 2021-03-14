@@ -12,10 +12,11 @@ import time
 import torch
 from torch.utils.data import DataLoader
 from SRFNet.data import ArgoDataset as Dataset, collate_fn
-from LaneGCN.lanegcn import PostProcess, pred_metrics
+from SRFNet.data_SRF import TrajectoryDataset, batch_form
+from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
-from LaneGCN.utils import Optimizer
-from SRFNet.model import Net_min, Loss, Net
+from LaneGCN.utils import Optimizer, gpu
+from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess
 
 warnings.filterwarnings("ignore")
 
@@ -40,21 +41,20 @@ def main():
     post_process = PostProcess(config)
 
     # data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
-    train_loader = DataLoader(dataset,
-                              batch_size=config["batch_size"],
-                              num_workers=config["workers"],
-                              collate_fn=collate_fn,
-                              shuffle=True,
-                              pin_memory=True,
-                              drop_last=True)
+    # train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"], config)
+    # train_loader = DataLoader(train_dataset,
+    #                         batch_size=config["val_batch_size"],
+    #                         num_workers=config["val_workers"],
+    #                         collate_fn=batch_form,
+    #                         shuffle=True,
+    #                         pin_memory=True)
 
-    # Data loader for evaluation
-    dataset = Dataset(config["val_split"], config, train=False)
-    val_loader = DataLoader(dataset,
+    # Data loader for validation
+    debug_dataset = TrajectoryDataset(config["val_meta"], config["data_root"], config)
+    debug_loader = DataLoader(debug_dataset,
                             batch_size=config["val_batch_size"],
                             num_workers=config["val_workers"],
-                            collate_fn=collate_fn,
+                            collate_fn=batch_form,
                             shuffle=True,
                             pin_memory=True)
 
@@ -68,9 +68,9 @@ def main():
     net = net.cuda(config['gpu_id'])
 
     opt = Optimizer(net.parameters(), config)
-    loss = Loss(config)
+    loss = Loss_light(config)
 
-    train(config, train_loader, net, loss, post_process, opt, val_loader)
+    train(config, debug_loader, net, loss, post_process, opt, debug_loader)
 
 
 def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
@@ -101,10 +101,23 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
                     epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
-            data = dict(data)
-            out = net(data)
-            loss_out = loss(out, data)
-            post_out = post_process(out, data)
+            actor_ctrs = gpu(data['actor_ctrs'], gpu_id = config['gpu_id'])
+            actor_idcs = gpu(data['actor_idcs'], gpu_id = config['gpu_id'])
+            actors = gpu(data['actors'], gpu_id = config['gpu_id'])
+            nodes = gpu(data['nodes'], gpu_id = config['gpu_id'])
+            graph_idcs = gpu(data['graph_idcs'], gpu_id = config['gpu_id'])
+            ego_feat = gpu(data['ego_feat'], gpu_id = config['gpu_id'])
+            feats = gpu(data['feats'], gpu_id = config['gpu_id'])
+            nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id = config['gpu_id'])
+            rot = gpu(data['rot'], gpu_id = config['gpu_id'])
+            orig = gpu(data['orig'], gpu_id = config['gpu_id'])
+            gt_preds = gpu(data['gt_preds'], gpu_id = config['gpu_id'])
+            has_preds = gpu(data['has_preds'], gpu_id = config['gpu_id'])
+
+            inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig]
+            out = net(inputs)
+            loss_out = loss(out, gt_preds, has_preds)
+            post_out = post_process(out,gt_preds, has_preds)
             ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
                                                    np.concatenate(post_out['gt_preds'], 0),
                                                    np.concatenate(post_out['has_preds'], 0))

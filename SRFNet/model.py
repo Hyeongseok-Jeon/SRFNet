@@ -8,7 +8,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 from LaneGCN.layers import Conv1d, Res1d, Linear, LinearRes, Null
-from LaneGCN.utils import gpu, to_long, Optimizer, StepLR
+from LaneGCN.utils import gpu, to_long, Optimizer, StepLR, cpu
+from numpy import ndarray
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 from SRFNet.layer import GraphAttentionLayer
@@ -21,39 +22,42 @@ class Net_min(nn.Module):
         super(Net_min, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
-        self.tempAtt_net = TempAttNet(config)
-        self.SRF_net = SRFNet(config)
-        self.pred_net = PredNet(config)
-        self.reaction_net = ReactNet(config)
+        self.tempAtt_net = TempAttNet(config).cuda()
+        self.SRF_net = SRFNet(config).cuda()
+        self.pred_net = PredNet(config).cuda()
+        self.reaction_net = ReactNet(config).cuda()
 
-    def forward(self, data: Dict):
+    def forward(self, inputs):
         # construct actor feature
-        actor_ctrs = gpu(data["ctrs"], self.config['gpu_id'])
+        actor_ctrs = inputs[0]
+        actor_idcs_init = inputs[1]
         actor_idcs = []
         veh_calc = 0
-        for i in range(len(data['actor_idcs'])):
-            actor_idcs.append(gpu(data['actor_idcs'][i][0] + veh_calc, self.config['gpu_id']))
-            veh_calc += len(data['actor_idcs'][i][0])
-        actors = gpu(data['actors_hidden'], self.config['gpu_id'])
-        nodes = gpu(data['nodes'], self.config['gpu_id'])
-        graph_idcs = gpu(data['graph_idcs'], self.config['gpu_id'])
-        ego_feat = gpu(data['ego_feat'], self.config['gpu_id'])
+        for i in range(len(actor_idcs_init)):
+            actor_idcs.append(actor_idcs_init[i] + veh_calc)
+            veh_calc += len(actor_idcs_init[i])
+        actors = inputs[2]
+        nodes = inputs[3]
+        graph_idcs = inputs[4]
+        ego_feat = inputs[5]
+        feats = inputs[6]
+        nearest_ctrs_hist = inputs[7]
+        rot = inputs[8]
+        orig = inputs[9]
 
         # concat actor and map features
-        actor_graph = actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, data)
+        actor_graph = self.actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, [feats, nearest_ctrs_hist])
 
         # get temporal attention matrix
         [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
         veh_calc = 0
         reaction_to_veh = []
-        for i in range(len(data['actor_idcs'])):
+        for i in range(len(actor_idcs)):
             reaction_to_i = []
-            for j in range(len(data['actor_idcs'][i][0])):
-                reaction_to_i.append(adjs[:,  veh_calc + j, veh_calc:veh_calc + len(data['actor_idcs'][i][0]),:])
+            for j in range(len(actor_idcs[i])):
+                reaction_to_i.append(adjs[:,  veh_calc + j, veh_calc:veh_calc + len(actor_idcs[i]),:])
             reaction_to_veh.append(reaction_to_i)
-            veh_calc += len(data['actor_idcs'][i][0])
+            veh_calc += len(actor_idcs[i])
 
         # reaction to i_th vehicle from j_th vehicle in k_th batch : reaction_to_veh[k][i][:,j,:]
         reaction_hiddens = self.SRF_net(reaction_to_veh)
@@ -66,7 +70,7 @@ class Net_min(nn.Module):
 
         if self.config['gpu_id'] == 0:
             out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
-            out_non_interact = self.get_world_cord(out_non_interact, data)
+            out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
             return out_non_interact
         else:
             actors_cat_sur_inter = torch.zeros_like(actors_cat)
@@ -77,23 +81,48 @@ class Net_min(nn.Module):
                     actors_cat_sur_inter[actor_idcs[i]] = actor_base_hid * inter_feat
             out_sur_interact = self.pred_net(actors_cat_sur_inter, actor_idcs, actor_ctrs)
             if self.config['gpu_id'] == 1:
-                out_sur_interact = self.get_world_cord(out_sur_interact, data)
+                out_sur_interact = self.get_world_cord(out_sur_interact, rot, orig)
                 return out_sur_interact
             elif self.config['gpu_id'] == 2:
                 out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat, actor_idcs)
                 out_ego_interact = dict()
                 out_ego_interact['cls'] = out_sur_interact['cls']
                 out_ego_interact['reg'] = [out_sur_interact['reg'][i] + out_ego_interact_tmp[i] for i in range(len(actor_idcs))]
-                out_ego_interact = self.get_world_cord(out_ego_interact, data)
+                out_ego_interact = self.get_world_cord(out_ego_interact, rot, orig)
                 return out_ego_interact
 
-    def get_world_cord(self, out, data):
-        rot, orig = gpu(data["rot"], self.config['gpu_id']), gpu(data["orig"], self.config['gpu_id'])
+    def get_world_cord(self, out, rot, orig):
         for i in range(len(out["reg"])):
-            out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i][0]) + orig[i][0].view(
                 1, 1, 1, -1
             )
         return out
+
+    def actor_graph_gather(self, actors, nodes, actor_idcs, config, graph_idcs, data):
+        batch_size = len(actors)
+        tot_veh_num = actor_idcs[-1][-1] + 1
+        node_feat_mask = gpu(torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map'])), config['gpu_id'])
+        gen_num = 0
+        adj_mask = gpu(torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor'])), config['gpu_id'])
+
+        maps = []
+        for i in range(batch_size):
+            idx = data[0][i][:, :, 2:]
+            idx = torch.repeat_interleave(idx, config['n_actor'], dim=-1)
+            map_node_idx = graph_idcs[i][data[1][i].long()]
+            map_node = nodes[map_node_idx]
+            maps.append(map_node * idx)
+
+        for i in range(batch_size):
+            node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, :config['n_actor']] = actors[i]
+            node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, config['n_actor']:] = maps[i]
+            adj_mask[gen_num:gen_num + actors[i].shape[0], gen_num:gen_num + actors[i].shape[0], :] = 1
+            gen_num += actors[i].shape[0]
+
+        actor_graph = dict()
+        actor_graph["node_feat"] = node_feat_mask
+        actor_graph["adj_mask"] = adj_mask
+        return actor_graph
 
 class Net(nn.Module):
     def __init__(self, config):
@@ -267,7 +296,6 @@ def map_graph_gather(data):
     graph_mod['right'] = {'u': right_tmp_u, 'v': right_tmp_v}
     return graph_mod
 
-
 def actor_graph_gather(actors, nodes, actor_idcs, config, graph_idcs, data):
     batch_size = len(actors)
     tot_veh_num = actor_idcs[-1][-1] + 1
@@ -293,7 +321,6 @@ def actor_graph_gather(actors, nodes, actor_idcs, config, graph_idcs, data):
     actor_graph["node_feat"] = node_feat_mask
     actor_graph["adj_mask"] = adj_mask
     return actor_graph
-
 
 class ActorNet(nn.Module):
     """
@@ -772,5 +799,99 @@ class Loss(nn.Module):
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
         return loss_out
+
+
+
+class Loss_light(nn.Module):
+    def __init__(self, config):
+        super(Loss_light, self).__init__()
+        self.config = config
+        self.pred_loss = PredLoss(config)
+
+    def forward(self, out, gt_preds, has_preds):
+        loss_out = self.pred_loss(out, gt_preds, has_preds)
+        loss_out["loss"] = loss_out["cls_loss"] / (
+                loss_out["num_cls"] + 1e-10
+        ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
+        return loss_out
+
+
+
+class PostProcess(nn.Module):
+    def __init__(self, config):
+        super(PostProcess, self).__init__()
+        self.config = config
+
+    def forward(self, out, gt_preds, has_preds):
+        post_out = dict()
+        post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[1:2].numpy() for x in cpu(gt_preds)]
+        post_out["has_preds"] = [x[1:2].numpy() for x in cpu(has_preds)]
+        return post_out
+
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
+        if len(metrics.keys()) == 0:
+            for key in loss_out:
+                if key != "loss":
+                    metrics[key] = 0.0
+
+            for key in post_out:
+                metrics[key] = []
+
+        for key in loss_out:
+            if key == "loss":
+                continue
+            if isinstance(loss_out[key], torch.Tensor):
+                metrics[key] += loss_out[key].item()
+            else:
+                metrics[key] += loss_out[key]
+
+        for key in post_out:
+            metrics[key] += post_out[key]
+        return metrics
+
+    def display(self, metrics, dt, epoch, lr=None):
+        """Every display-iters print training/val information"""
+        if lr is not None:
+            print("Epoch %3.3f, lr %.5f, time %3.2f" % (epoch, lr, dt))
+        else:
+            print(
+                "************************* Validation, time %3.2f *************************"
+                % dt
+            )
+
+        cls = metrics["cls_loss"] / (metrics["num_cls"] + 1e-10)
+        reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
+        loss = cls + reg
+
+        preds = np.concatenate(metrics["preds"], 0)
+        gt_preds = np.concatenate(metrics["gt_preds"], 0)
+        has_preds = np.concatenate(metrics["has_preds"], 0)
+        ade1, fde1, ade, fde, min_idcs = pred_metrics(preds, gt_preds, has_preds)
+
+        print(
+            "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+            % (loss, cls, reg, ade1, fde1, ade, fde)
+        )
+        print()
+
+
+def pred_metrics(preds, gt_preds, has_preds):
+    assert has_preds.all()
+    preds = np.asarray(preds, np.float32)
+    gt_preds = np.asarray(gt_preds, np.float32)
+
+    """batch_size x num_mods x num_preds"""
+    err = np.sqrt(((preds - np.expand_dims(gt_preds, 1)) ** 2).sum(3))
+
+    ade1 = err[:, 0].mean()
+    fde1 = err[:, 0, -1].mean()
+
+    min_idcs = err[:, :, -1].argmin(1)
+    row_idcs = np.arange(len(min_idcs)).astype(np.int64)
+    err = err[row_idcs, min_idcs]
+    ade = err.mean()
+    fde = err[:, -1].mean()
+    return ade1, fde1, ade, fde, min_idcs
 
 # TODO: need to consider global position of the vehicles in GAT
