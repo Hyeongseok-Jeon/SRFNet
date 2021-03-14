@@ -211,9 +211,8 @@ class pre_net(nn.Module):
 
         ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
         ego_fut = torch.cat(ego_fut, dim=0)
-        ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
 
-        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"], ego_feat]
+        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"]]
 
 
 def map_graph_gather(data):

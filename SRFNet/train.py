@@ -58,7 +58,7 @@ def main():
                             shuffle=True,
                             pin_memory=True)
 
-    net = Net(config)
+    net = Net_min(config)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()
