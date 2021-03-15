@@ -69,7 +69,7 @@ def main():
     # Data loader for evaluation
     dataset = Dataset(config["val_split"], config, train=False)
     val_loader = DataLoader(dataset,
-                            batch_size=config["batch_size"],
+                            batch_size=4,
                             num_workers=config["val_workers"],
                             collate_fn=collate_fn,
                             shuffle=True,
