@@ -10,7 +10,7 @@ sys.path.extend(['/home/user/Desktop/SRFNet'])
 sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
-import random
+
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -63,7 +63,6 @@ def main():
                                   num_workers=config["workers"],
                                   collate_fn=batch_form,
                                   shuffle=True,
-                                  worker_init_fn=worker_init_fn,
                                   pin_memory=True)
         val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
         val_loader = DataLoader(val_dataset,
@@ -81,17 +80,10 @@ def main():
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
 
-    writer = SummaryWriter(config["save_dir"] + '/tensorboard')
-
     opt = Optimizer(net.parameters(), config)
     loss = Loss_light(config)
     if args.multi_gpu:
         hvd.init()
-        seed = hvd.rank()
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-        np.random.seed(seed)
-        random.seed(seed)
         torch.cuda.set_device(hvd.local_rank())
         if args.location == 'home':
             debug_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -102,120 +94,100 @@ def main():
                                                        collate_fn=batch_form,
                                                        pin_memory=True,
                                                        sampler=debug_sampler)
-        else:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(
-                train_dataset, num_replicas=hvd.size(), rank=hvd.rank())
-            train_loader = torch.utils.data.DataLoader(train_dataset,
-                                                       batch_size=config["batch_size"],
-                                                       num_workers=config["workers"],
-                                                       collate_fn=batch_form,
-                                                       pin_memory=True,
-                                                       sampler=train_sampler)
-            val_sampler = torch.utils.data.distributed.DistributedSampler(
-                val_dataset, num_replicas=hvd.size(), rank=hvd.rank())
-            val_loader = torch.utils.data.DataLoader(val_dataset,
-                                                     batch_size=config["batch_size"],
-                                                     num_workers=config["workers"],
-                                                     collate_fn=batch_form,
-                                                     pin_memory=True,
-                                                     sampler=val_sampler)
-        net = net.cuda()
-        opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
-        hvd.broadcast_parameters(net.state_dict(), root_rank=0)
-        hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
+            net = net.cuda()
+            opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
+            hvd.broadcast_parameters(net.state_dict(), root_rank=0)
     else:
         net = net.cuda(config['gpu_id'])
 
     if args.location == 'home':
         train(config, debug_loader, net, loss, post_process, opt, debug_loader)
     else:
-        epoch = config["epoch"]
-        remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
-        for i in range(remaining_epochs):
-            train(epoch + i, config, train_loader, net, loss, post_process, opt, writer, val_loader)
+        train(config, train_loader, net, loss, post_process, opt, val_loader)
 
 
-def train(epoch, config, train_loader, net, loss, post_process, opt, writer, val_loader=None):
+def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     net.train()
     val_iters = config["val_iters"]
     save_iters = config['save_freq']
     batch_num = len(train_loader.dataset)
     first_val = True
-    update_num = 0
-    ade1_tot = 0
-    fde1_tot = 0
-    ade_tot = 0
-    fde_tot = 0
-    loss_tot = 0
-    init_time = time.time()
-    time_ref = 0
-    for i, data in enumerate(train_loader):
-        current = (i + 1) * config['batch_size']
-        percent = float(current) * 100 / batch_num
-        arrow = '-' * int(percent / 100 * 20 - 1) + '>'
-        spaces = ' ' * (20 - len(arrow))
-        # if i == 0:
-        #     sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
-        # else:
-        #     sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
-        #         epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+    writer = SummaryWriter(config["save_dir"] + '/tensorboard')
+    for epoch in range(config['num_epochs']):
+        update_num = 0
+        ade1_tot = 0
+        fde1_tot = 0
+        ade_tot = 0
+        fde_tot = 0
+        loss_tot = 0
+        init_time = time.time()
+        time_ref = 0
+        for i, data in enumerate(train_loader):
+            current = (i + 1) * config['batch_size']
+            percent = float(current) * 100 / batch_num
+            arrow = '-' * int(percent / 100 * 20 - 1) + '>'
+            spaces = ' ' * (20 - len(arrow))
+            if i == 0:
+                sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
+            else:
+                sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                    epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
-        actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
-        actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
-        actors = gpu(data['actors'], gpu_id=config['gpu_id'])
-        nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
-        graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
-        ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
-        feats = gpu(data['feats'], gpu_id=config['gpu_id'])
-        nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
-        rot = gpu(data['rot'], gpu_id=config['gpu_id'])
-        orig = gpu(data['orig'], gpu_id=config['gpu_id'])
-        gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
-        has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
-        ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
-        inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
+            actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
+            actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
+            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
+            graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
+            ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
+            feats = gpu(data['feats'], gpu_id=config['gpu_id'])
+            nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
+            rot = gpu(data['rot'], gpu_id=config['gpu_id'])
+            orig = gpu(data['orig'], gpu_id=config['gpu_id'])
+            gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
+            has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
+            ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
+            inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
 
-        out = net(inputs)
-        loss_out = loss(out, gt_preds, has_preds)
-        post_out = post_process(out, gt_preds, has_preds)
-        ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
-                                               np.concatenate(post_out['gt_preds'], 0),
-                                               np.concatenate(post_out['has_preds'], 0))
+            out = net(inputs)
+            loss_out = loss(out, gt_preds, has_preds)
+            post_out = post_process(out, gt_preds, has_preds)
+            ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                   np.concatenate(post_out['gt_preds'], 0),
+                                                   np.concatenate(post_out['has_preds'], 0))
 
-        ade1_tot += ade1 * len(data["city"])
-        fde1_tot += fde1 * len(data["city"])
-        ade_tot += ade * len(data["city"])
-        fde_tot += fde * len(data["city"])
-        loss_tot += loss_out["loss"].item() * len(data["city"])
-        update_num += len(data["city"])
+            ade1_tot += ade1 * len(data["city"])
+            fde1_tot += fde1 * len(data["city"])
+            ade_tot += ade * len(data["city"])
+            fde_tot += fde * len(data["city"])
+            loss_tot += loss_out["loss"].item() * len(data["city"])
+            update_num += len(data["city"])
 
-        opt.zero_grad()
-        loss_out["loss"].backward()
-        lr = opt.step(epoch)
+            opt.zero_grad()
+            loss_out["loss"].backward()
+            lr = opt.step(epoch)
 
-    if epoch % val_iters == val_iters - 1:
-        if not os.path.exists(config["save_dir"]):
-            os.makedirs(config["save_dir"])
-        if first_val:
-            with open(config["save_dir"] + '/info.pickle', 'wb') as f:
-                pickle.dump([args, config], f, pickle.HIGHEST_PROTOCOL)
-            first_val = False
-        [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, loss, post_process, epoch)
-        writer.add_scalar('loss_val', loss_val, epoch)
-        writer.add_scalar('ade_val', ade1_val, epoch)
-        writer.add_scalar('fde_val', fde1_val, epoch)
-        writer.add_scalar('ade6_val', ade6_val, epoch)
-        writer.add_scalar('fde6_val', fde6_val, epoch)
-    if hvd.rank() == 0:
+        if epoch % val_iters == val_iters - 1:
+            if not os.path.exists(config["save_dir"]):
+                os.makedirs(config["save_dir"])
+            if first_val:
+                with open(config["save_dir"] + '/info.pickle', 'wb') as f:
+                    pickle.dump([args, config], f, pickle.HIGHEST_PROTOCOL)
+                first_val = False
+            [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, loss, post_process, epoch)
+            writer.add_scalar('loss_val', loss_val, epoch)
+            writer.add_scalar('ade_val', ade1_val, epoch)
+            writer.add_scalar('fde_val', fde1_val, epoch)
+            writer.add_scalar('ade6_val', ade6_val, epoch)
+            writer.add_scalar('fde6_val', fde6_val, epoch)
         if epoch % save_iters == save_iters - 1:
             if not os.path.exists(config["save_dir"]):
                 os.makedirs(config["save_dir"])
             save_ckpt(net, opt, config["save_dir"], epoch)
-    writer.add_scalar('loss_train', loss_tot / update_num, epoch)
-    writer.add_scalar('ade_train', ade1_tot / update_num, epoch)
-    writer.add_scalar('fde_train', fde1_tot / update_num, epoch)
-    writer.add_scalar('ade6_train', ade_tot / update_num, epoch)
-    writer.add_scalar('fde6_train', fde_tot / update_num, epoch)
+        writer.add_scalar('loss_train', loss_tot / update_num, epoch)
+        writer.add_scalar('ade_train', ade1_tot / update_num, epoch)
+        writer.add_scalar('fde_train', fde1_tot / update_num, epoch)
+        writer.add_scalar('ade6_train', ade_tot / update_num, epoch)
+        writer.add_scalar('fde6_train', fde_tot / update_num, epoch)
 
 
 def val(config, data_loader, net, loss, post_process, epoch):
@@ -287,11 +259,6 @@ def save_ckpt(net, opt, save_dir, epoch):
         os.path.join(save_dir, save_name),
     )
 
-def worker_init_fn(pid):
-    np_seed = hvd.rank() * 1024 + int(pid)
-    np.random.seed(np_seed)
-    random_seed = np.random.randint(2 ** 32 - 1)
-    random.seed(random_seed)
 
 if __name__ == "__main__":
     main()
