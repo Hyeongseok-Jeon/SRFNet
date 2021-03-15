@@ -12,7 +12,7 @@ from LaneGCN.utils import gpu, to_long, Optimizer, StepLR, cpu
 from numpy import ndarray
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
-from SRFNet.layer import GraphAttentionLayer
+from SRFNet.layer import GraphAttentionLayer, GraphAttentionLayer_time_serial
 import time
 
 
@@ -47,9 +47,9 @@ class Net_min(nn.Module):
         ego_feat_calc = inputs[10]
         # concat actor and map features
         actor_graph = self.actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, [feats, nearest_ctrs_hist])
-
         # get temporal attention matrix
         [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
+
         veh_calc = 0
         reaction_to_veh = []
         for i in range(len(actor_idcs)):
@@ -505,7 +505,8 @@ class TempAttNet(nn.Module):
                        config["GAT_dropout"],
                        config["GAT_Leakyrelu_alpha"],
                        nTime=20,
-                       training=config["training"])
+                       training=config["training"],
+                       config=self.config)
 
     def forward(self, actor_graph):
         out = self.GAT(actor_graph, self.W)
@@ -696,26 +697,39 @@ class AttDest(nn.Module):
 
 
 class GAT(nn.Module):
-    def __init__(self, nfeat, nhid, dropout, alpha, nTime, training):
+    def __init__(self, nfeat, nhid, dropout, alpha, nTime, training, config):
         """Dense version of GAT."""
         super(GAT, self).__init__()
+        self.config = config
         self.dropout = dropout
         self.training = training
         self.nTime = nTime
         self.input_layer = nn.Linear(nfeat, nhid)
-        self.attentions = [GraphAttentionLayer(nhid, nhid, dropout=dropout, alpha=alpha, concat=True, training=self.training) for _ in range(nTime)]
-        for i, attention in enumerate(self.attentions):
-            self.add_module('attention_{}'.format(i), attention)
+        self.attentions = GraphAttentionLayer_time_serial(config, nhid, nhid, dropout=dropout, alpha=alpha, concat=True, training=self.training, nTime=nTime)
+
+        # self.attentions = [GraphAttentionLayer(nhid, nhid, dropout=dropout, alpha=alpha, concat=True, training=self.training) for _ in range(nTime)]
+        # for i, attention in enumerate(self.attentions):
+        #     self.add_module('attention_{}'.format(i), attention)
 
     def forward(self, actor_graph, share_weight):
-        x = actor_graph['node_feat'][:, 0, :]
-        adj = actor_graph['adj_mask']
+        # x = actor_graph['node_feat'][:, 0, :]
+        # adj = actor_graph['adj_mask']
+        # x = F.elu(input_layer(x))
+        # x = F.dropout(x, dropout, training=training)
+        # x = [att([x, adj], share_weight) for att in attentions]
+        # feats = [F.dropout(x[i][0].unsqueeze(dim=0), dropout, training=training) for i in range(nTime)]
+        # adjs = [x[i][1].unsqueeze(dim=0) for i in range(nTime)]
+
+
+        x = torch.cat([actor_graph['node_feat'][:, i, :] for i in range(self.nTime)], dim=0)
+        adj = torch.zeros((actor_graph['adj_mask'].shape[0]*self.nTime, actor_graph['adj_mask'].shape[0]*self.nTime, 128)).cuda(self.config['gpu_id'])
+        for i in range(self.nTime):
+            adj[actor_graph['adj_mask'].shape[0]*i:actor_graph['adj_mask'].shape[0]*(i+1),actor_graph['adj_mask'].shape[0]*i:actor_graph['adj_mask'].shape[0]*(i+1),:] = actor_graph['adj_mask']
         x = F.elu(self.input_layer(x))
         x = F.dropout(x, self.dropout, training=self.training)
-        x = [att([x, adj], share_weight) for att in self.attentions]
+        x = self.attentions([x, adj], share_weight)
         feats = [F.dropout(x[i][0].unsqueeze(dim=0), self.dropout, training=self.training) for i in range(self.nTime)]
         adjs = [x[i][1].unsqueeze(dim=0) for i in range(self.nTime)]
-
         return [feats, adjs]
 
 

@@ -148,8 +148,8 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
             has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
             ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
-
             inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
+
             out = net(inputs)
             loss_out = loss(out, gt_preds, has_preds)
             post_out = post_process(out, gt_preds, has_preds)
