@@ -3,7 +3,6 @@ import os
 import argparse
 import numpy as np
 import sys
-import horovod.torch as hvd
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/Desktop/SRFNet'])
@@ -37,8 +36,6 @@ parser.add_argument("--port", default=52162)
 parser.add_argument("--multi_gpu", type=bool, default=False)
 args = parser.parse_args()
 
-if args.multi_gpu:
-    hvd.init()
 
 def main():
     config = get_config(root_path, args)
