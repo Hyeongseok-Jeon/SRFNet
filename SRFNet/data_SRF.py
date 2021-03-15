@@ -37,6 +37,7 @@ class TrajectoryDataset(Dataset):
                   'orig': data['orig'],
                   'gt_preds': data['gt_preds'],
                   'has_preds': data['has_preds'],
+                  'ego_feat_calc': data['ego_feat_calc'],
                   'city': data['city']}
         return sample
 
@@ -55,6 +56,7 @@ def batch_form(samples):
     orig = [sample['orig'] for sample in samples]
     gt_preds = [sample['gt_preds'][0] for sample in samples]
     has_preds = [sample['has_preds'][0] for sample in samples]
+    ego_feat_calc = [sample['ego_feat_calc'][0] for sample in samples]
     city = [sample['city'] for sample in samples]
 
     sample_mod = {'actor_ctrs': actor_ctrs,
@@ -70,6 +72,7 @@ def batch_form(samples):
                   'orig': orig,
                   'gt_preds': gt_preds,
                   'has_preds': has_preds,
+                  'ego_feat_calc': ego_feat_calc,
                   'city': city}
 
     return sample_mod

@@ -44,7 +44,7 @@ class Net_min(nn.Module):
         nearest_ctrs_hist = inputs[7]
         rot = inputs[8]
         orig = inputs[9]
-
+        ego_feat_calc = inputs[10]
         # concat actor and map features
         actor_graph = self.actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, [feats, nearest_ctrs_hist])
 
@@ -84,7 +84,7 @@ class Net_min(nn.Module):
                 out_sur_interact = self.get_world_cord(out_sur_interact, rot, orig)
                 return out_sur_interact
             elif self.config['gpu_id'] == 3:
-                out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat, actor_idcs)
+                out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat_calc, actor_idcs)
                 out_ego_interact = dict()
                 out_ego_interact['cls'] = out_sur_interact['cls']
                 out_ego_interact['reg'] = [out_sur_interact['reg'][i] + out_ego_interact_tmp[i] for i in range(len(actor_idcs))]
