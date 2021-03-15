@@ -41,12 +41,6 @@ args = parser.parse_args()
 
 
 def main():
-    seed = hvd.rank()
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
     config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
     config["save_dir"] = config["save_dir"] + '_' + args.memo
@@ -91,6 +85,11 @@ def main():
     loss = Loss_light(config)
     if args.multi_gpu:
         hvd.init()
+        seed = hvd.rank()
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
         torch.cuda.set_device(hvd.local_rank())
         if args.location == 'home':
             debug_sampler = torch.utils.data.distributed.DistributedSampler(
