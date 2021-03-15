@@ -18,7 +18,7 @@ from LaneGCN.lanegcn import PostProcess, pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, cpu
 from SRFNet.model import pre_net, Loss
-import pickle
+import pickle5 as pickle
 
 warnings.filterwarnings("ignore")
 

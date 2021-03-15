@@ -8,7 +8,7 @@ Preprocess the data(csv), build graph from the HDMAP and saved as pkl
 
 import argparse
 import os
-import pickle
+import pickle5 as pickle
 import random
 import sys
 import time

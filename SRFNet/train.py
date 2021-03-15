@@ -18,7 +18,7 @@ from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu
 from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess
-import pickle
+import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 
 warnings.filterwarnings("ignore")
@@ -45,7 +45,7 @@ def main():
     post_process = PostProcess(config)
 
     if args.location == 'home':
-        debug_dataset = TrajectoryDataset(config["val_meta"], config["data_root"], config)
+        debug_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
         debug_loader = DataLoader(debug_dataset,
                                   batch_size=config["val_batch_size"],
                                   num_workers=config["val_workers"],
