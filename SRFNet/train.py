@@ -54,14 +54,14 @@ def main():
                                   pin_memory=True)
     else:
         # data loader for training
-        train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"], config)
+        train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"] + 'train/', config)
         train_loader = DataLoader(train_dataset,
-                                  batch_size=config["val_batch_size"],
-                                  num_workers=config["val_workers"],
+                                  batch_size=config["batch_size"],
+                                  num_workers=config["workers"],
                                   collate_fn=batch_form,
                                   shuffle=True,
                                   pin_memory=True)
-        val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"], config)
+        val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
         val_loader = DataLoader(val_dataset,
                                 batch_size=config["val_batch_size"],
                                 num_workers=config["val_workers"],

@@ -17,7 +17,7 @@ def get_config(root_path, args):
     config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
     config["test_meta"] = os.path.join(root_path, "SRFNet/dataset/preprocess/data_meta_test.csv")
 
-    config["data_root"] = os.path.join(root_path, "SRFNet/dataset/preprocess/val")
+    config["data_root"] = os.path.join(root_path, "SRFNet/dataset/preprocess/")
 
 
     # Data Loader setting
