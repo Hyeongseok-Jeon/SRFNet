@@ -81,6 +81,8 @@ def main():
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
 
+    writer = SummaryWriter(config["save_dir"] + '/tensorboard')
+
     opt = Optimizer(net.parameters(), config)
     loss = Loss_light(config)
     if args.multi_gpu:
@@ -130,16 +132,15 @@ def main():
         epoch = config["epoch"]
         remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
         for i in range(remaining_epochs):
-            train(epoch + i, config, train_loader, net, loss, post_process, opt, val_loader)
+            train(epoch + i, config, train_loader, net, loss, post_process, opt, writer, val_loader)
 
 
-def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=None):
+def train(epoch, config, train_loader, net, loss, post_process, opt, writer, val_loader=None):
     net.train()
     val_iters = config["val_iters"]
     save_iters = config['save_freq']
     batch_num = len(train_loader.dataset)
     first_val = True
-    writer = SummaryWriter(config["save_dir"] + '/tensorboard')
     update_num = 0
     ade1_tot = 0
     fde1_tot = 0
