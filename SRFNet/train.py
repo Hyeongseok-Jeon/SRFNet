@@ -3,6 +3,7 @@ import os
 import argparse
 import numpy as np
 import sys
+
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/Desktop/SRFNet'])
@@ -20,6 +21,7 @@ from LaneGCN.utils import Optimizer, gpu
 from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
+import horovod.torch as hvd
 
 warnings.filterwarnings("ignore")
 
@@ -33,7 +35,7 @@ parser.add_argument('--location', type=str, default='home')
 parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
-parser.add_argument("--multi_gpu", type=bool, default=False)
+parser.add_argument("--multi_gpu", type=bool, default=True)
 args = parser.parse_args()
 
 
@@ -76,10 +78,27 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
-    net = net.cuda(config['gpu_id'])
 
     opt = Optimizer(net.parameters(), config)
     loss = Loss_light(config)
+    if args.multi_gpu:
+        hvd.init()
+        torch.cuda.set_device(hvd.local_rank())
+        if args.location == 'home':
+            debug_sampler = torch.utils.data.distributed.DistributedSampler(
+                debug_dataset, num_replicas=hvd.size(), rank=hvd.rank())
+            debug_loader = torch.utils.data.DataLoader(debug_dataset,
+                                                       batch_size=config["batch_size"],
+                                                       num_workers=config["workers"],
+                                                       collate_fn=batch_form,
+                                                       pin_memory=True,
+                                                       sampler=debug_sampler)
+            net = net.cuda()
+            opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
+            hvd.broadcast_parameters(net.state_dict(), root_rank=0)
+    else:
+        net = net.cuda(config['gpu_id'])
+
     if args.location == 'home':
         train(config, debug_loader, net, loss, post_process, opt, debug_loader)
     else:
@@ -145,7 +164,6 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             loss_out["loss"].backward()
             lr = opt.step(epoch)
 
-
         if epoch % val_iters == val_iters - 1:
             if not os.path.exists(config["save_dir"]):
                 os.makedirs(config["save_dir"])
@@ -170,7 +188,6 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
         writer.add_scalar('fde6_train', fde_tot / update_num, epoch)
 
 
-
 def val(config, data_loader, net, loss, post_process, epoch):
     net.eval()
     update_num = 0
@@ -192,7 +209,6 @@ def val(config, data_loader, net, loss, post_process, epoch):
         else:
             sys.stdout.write('\r' + ' Validation Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
                 arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
-
 
         data = dict(data)
         actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
@@ -226,7 +242,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
         loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
     net.train()
-    return [loss_tot/update_num, ade1_tot/update_num, fde1_tot/update_num, ade_tot/update_num, fde_tot/update_num]
+    return [loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num]
 
 
 def save_ckpt(net, opt, save_dir, epoch):
