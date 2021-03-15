@@ -85,8 +85,8 @@ def main():
     opt = Optimizer(net.parameters(), config)
     loss = Loss(config)
 
-    # data_gen(config, val_loader, net, val_path)
-    data_gen(config, train_loader, net, train_path)
+    data_gen(config, val_loader, net, val_path)
+    # data_gen(config, train_loader, net, train_path)
 
 
 def data_gen(config, train_loader, net, path):
@@ -103,13 +103,14 @@ def data_gen(config, train_loader, net, path):
             sys.stdout.write('\r' + 'Progress: [%s%s] %d %%  time: %f sec  %s '% (arrow, spaces, percent, time.time() - init_time,  str(data['file_name'][0])))
 
         data = dict(data)
-        [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs] = net(data)
+        [actors_hidden, nodes, node_idcs, node_ctrs, graph_idcs, ego_feat_calc] = net(data)
 
         data['actors_hidden'] = cpu([x.detach() for x in actors_hidden])
         data['node'] = cpu(nodes.detach())
         data['node_idcs'] = cpu([x.detach() for x in node_idcs])
         data['node_ctrs'] = cpu([x.detach() for x in node_ctrs])
         data['graph_idcs'] = cpu([x.detach() for x in graph_idcs])
+        data['ego_feat_calc'] = cpu([x.detach() for x in ego_feat_calc])
         _, file_name = os.path.split(data['file_name'][0])
         file_name = file_name[:-4]
         with open(path + '/'+file_name+'.pickle', 'wb') as f:

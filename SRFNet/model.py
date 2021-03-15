@@ -22,10 +22,10 @@ class Net_min(nn.Module):
         super(Net_min, self).__init__()
         self.config = config
 
-        self.tempAtt_net = TempAttNet(config).cuda()
-        self.SRF_net = SRFNet(config).cuda()
-        self.pred_net = PredNet(config).cuda()
-        self.reaction_net = ReactNet(config).cuda()
+        self.tempAtt_net = TempAttNet(config)
+        self.SRF_net = SRFNet(config)
+        self.pred_net = PredNet(config)
+        self.reaction_net = ReactNet(config)
 
     def forward(self, inputs):
         # construct actor feature
@@ -240,8 +240,9 @@ class pre_net(nn.Module):
 
         ego_fut = [torch.repeat_interleave(gpu(data['ego_feats'][i], self.config['gpu_id']), len(data['actor_idcs'][i][0]), dim=0) for i in range(len(data['actor_idcs']))]
         ego_fut = torch.cat(ego_fut, dim=0)
+        ego_feat = [self.actor_net(torch.transpose(ego_fut[:, ts - 20:ts, :], 1, 2), actor_idcs) for ts in range(20, 50)]
 
-        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"]]
+        return [actors_hidden, nodes, node_idcs, node_ctrs, graph["idcs"], ego_feat]
 
 
 def map_graph_gather(data):
