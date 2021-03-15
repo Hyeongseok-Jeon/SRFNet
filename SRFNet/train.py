@@ -127,7 +127,7 @@ def main():
     if args.location == 'home':
         train(config, debug_loader, net, loss, post_process, opt, debug_loader)
     else:
-        epoch = config["num_epochs"]
+        epoch = config["epoch"]
         remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
         for i in range(remaining_epochs):
             train(epoch + i, config, train_loader, net, loss, post_process, opt, val_loader)
