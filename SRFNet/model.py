@@ -68,7 +68,7 @@ class Net_min(nn.Module):
         # prediction
         actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
 
-        if self.config['gpu_id'] == 0:
+        if self.config['interaction'] == 0:
             out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
             out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
             return out_non_interact

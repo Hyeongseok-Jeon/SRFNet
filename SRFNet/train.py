@@ -36,6 +36,7 @@ parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 parser.add_argument("--multi_gpu", type=bool, default=True)
+parser.add_argument("--interaction", type=str, default='none')
 args = parser.parse_args()
 
 
