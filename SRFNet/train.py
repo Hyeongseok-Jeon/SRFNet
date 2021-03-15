@@ -113,8 +113,8 @@ def main():
                                                      sampler=val_sampler)
         net = net.cuda()
         opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
-        hvd.broadcast_parameters(net.state_dict(), root_rank=config['gpu_id'])
-        hvd.broadcast_optimizer_state(opt.opt, root_rank=config['gpu_id'])
+        hvd.broadcast_parameters(net.state_dict(), root_rank=0)
+        hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
     else:
         net = net.cuda(config['gpu_id'])
 
