@@ -10,7 +10,7 @@ sys.path.extend(['/home/user/Desktop/SRFNet'])
 sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
 sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
-
+import random
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -41,6 +41,12 @@ args = parser.parse_args()
 
 
 def main():
+    seed = hvd.rank()
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
     config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
     config["save_dir"] = config["save_dir"] + '_' + args.memo
@@ -278,6 +284,11 @@ def save_ckpt(net, opt, save_dir, epoch):
         os.path.join(save_dir, save_name),
     )
 
+def worker_init_fn(pid):
+    np_seed = hvd.rank() * 1024 + int(pid)
+    np.random.seed(np_seed)
+    random_seed = np.random.randint(2 ** 32 - 1)
+    random.seed(random_seed)
 
 if __name__ == "__main__":
     main()

@@ -21,10 +21,10 @@ class Net_min(nn.Module):
         super(Net_min, self).__init__()
         self.config = config
 
-        self.tempAtt_net = TempAttNet(config).cuda()
-        self.SRF_net = SRFNet(config).cuda()
-        self.pred_net = PredNet(config).cuda()
-        self.reaction_net = ReactNet(config).cuda()
+        self.tempAtt_net = TempAttNet(config)
+        self.SRF_net = SRFNet(config)
+        self.pred_net = PredNet(config)
+        self.reaction_net = ReactNet(config)
 
     def forward(self, inputs):
         # construct actor feature
