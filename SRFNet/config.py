@@ -45,9 +45,9 @@ def get_config(root_path, args):
     config["lr"] = [1e-3, 1e-4]
     config["lr_epochs"] = [50]
     config["lr_func"] = StepLR(config["lr"], config["lr_epochs"])
-    config["save_freq"] = 5
+    config["save_freq"] = 1
     config["display_iters"] = 1
-    config["val_iters"] = 5
+    config["val_iters"] = 1
     config["cls_th"] = 2.0
     config["cls_ignore"] = 0.2
     config["mgn"] = 0.2

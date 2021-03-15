@@ -19,6 +19,8 @@ from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu
 from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess
+import pickle
+from torch.utils.tensorboard import SummaryWriter
 
 warnings.filterwarnings("ignore")
 
@@ -32,10 +34,10 @@ parser.add_argument('--location', type=str, default='home')
 parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
-parser.add_argument("--multi_gpu", type=bool, default=True)
+parser.add_argument("--multi_gpu", type=bool, default=False)
 args = parser.parse_args()
 
-if parser.multi_gpu:
+if args.multi_gpu:
     hvd.init()
 
 def main():
@@ -90,7 +92,10 @@ def main():
 def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
     net.train()
     val_iters = config["val_iters"]
+    save_iters = config['save_freq']
     batch_num = len(train_loader.dataset)
+    first_val = True
+    writer = SummaryWriter(config["save_dir"] + '/tensorboard')
     for epoch in range(config['num_epochs']):
         update_num = 0
         ade1_tot = 0
@@ -142,14 +147,34 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             loss_out["loss"].backward()
             lr = opt.step(epoch)
 
+
         if epoch % val_iters == val_iters - 1:
+            if not os.path.exists(config["save_dir"]):
+                os.makedirs(config["save_dir"])
+            if first_val:
+                with open(config["save_dir"] + '/info.pickle', 'wb') as f:
+                    pickle.dump([args, config], f, pickle.HIGHEST_PROTOCOL)
+                first_val = False
+            [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, loss, post_process, epoch)
+            writer.add_scalar('loss_val', loss_val, epoch)
+            writer.add_scalar('ade_val', ade1_val, epoch)
+            writer.add_scalar('fde_val', fde1_val, epoch)
+            writer.add_scalar('ade6_val', ade6_val, epoch)
+            writer.add_scalar('fde6_val', fde6_val, epoch)
+        if epoch % save_iters == save_iters - 1:
+            if not os.path.exists(config["save_dir"]):
+                os.makedirs(config["save_dir"])
             save_ckpt(net, opt, config["save_dir"], epoch)
-            val(config, val_loader, net, loss, post_process, epoch)
+        writer.add_scalar('loss_train', loss_tot / update_num, epoch)
+        writer.add_scalar('ade_train', ade1_tot / update_num, epoch)
+        writer.add_scalar('fde_train', fde1_tot / update_num, epoch)
+        writer.add_scalar('ade6_train', ade_tot / update_num, epoch)
+        writer.add_scalar('fde6_train', fde_tot / update_num, epoch)
+
 
 
 def val(config, data_loader, net, loss, post_process, epoch):
     net.eval()
-    start_time = time.time()
     update_num = 0
     ade1_tot = 0
     fde1_tot = 0
@@ -203,12 +228,10 @@ def val(config, data_loader, net, loss, post_process, epoch):
         loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
     net.train()
+    return [loss_tot/update_num, ade1_tot/update_num, fde1_tot/update_num, ade_tot/update_num, fde_tot/update_num]
 
 
 def save_ckpt(net, opt, save_dir, epoch):
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
     state_dict = net.state_dict()
     for key in state_dict.keys():
         state_dict[key] = state_dict[key].cpu()
