@@ -55,6 +55,7 @@ def get_config(root_path, args):
     config["reg_coef"] = 1.0
     config["training"] = True
     config["reactive"] = False
+    config["epoch"] = 0
 
     # LaneGCN model setting
     config["n_actor"] = 128
