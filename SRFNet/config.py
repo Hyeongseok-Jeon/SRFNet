@@ -32,8 +32,8 @@ def get_config(root_path, args):
 
     # Training setting
     if args.location == 'home':
-        config["batch_size"] = 4
-        config["val_batch_size"] = 4
+        config["batch_size"] = 1
+        config["val_batch_size"] = 1
     else:
         config["batch_size"] = 4
         config["val_batch_size"] = 4

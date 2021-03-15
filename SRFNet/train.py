@@ -94,9 +94,27 @@ def main():
                                                        collate_fn=batch_form,
                                                        pin_memory=True,
                                                        sampler=debug_sampler)
-            net = net.cuda()
-            opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
-            hvd.broadcast_parameters(net.state_dict(), root_rank=0)
+        else:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(
+                train_dataset, num_replicas=hvd.size(), rank=hvd.rank())
+            train_loader = torch.utils.data.DataLoader(train_dataset,
+                                                       batch_size=config["batch_size"],
+                                                       num_workers=config["workers"],
+                                                       collate_fn=batch_form,
+                                                       pin_memory=True,
+                                                       sampler=train_sampler)
+            val_sampler = torch.utils.data.distributed.DistributedSampler(
+                val_dataset, num_replicas=hvd.size(), rank=hvd.rank())
+            val_loader = torch.utils.data.DataLoader(val_dataset,
+                                                     batch_size=config["batch_size"],
+                                                     num_workers=config["workers"],
+                                                     collate_fn=batch_form,
+                                                     pin_memory=True,
+                                                     sampler=val_sampler)
+        net = net.cuda()
+        opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
+        hvd.broadcast_parameters(net.state_dict(), root_rank=config['gpu_id'])
+        hvd.broadcast_optimizer_state(opt.opt, root_rank=config['gpu_id'])
     else:
         net = net.cuda(config['gpu_id'])
 
@@ -179,10 +197,11 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             writer.add_scalar('fde_val', fde1_val, epoch)
             writer.add_scalar('ade6_val', ade6_val, epoch)
             writer.add_scalar('fde6_val', fde6_val, epoch)
-        if epoch % save_iters == save_iters - 1:
-            if not os.path.exists(config["save_dir"]):
-                os.makedirs(config["save_dir"])
-            save_ckpt(net, opt, config["save_dir"], epoch)
+        if hvd.rank() == 0:
+            if epoch % save_iters == save_iters - 1:
+                if not os.path.exists(config["save_dir"]):
+                    os.makedirs(config["save_dir"])
+                save_ckpt(net, opt, config["save_dir"], epoch)
         writer.add_scalar('loss_train', loss_tot / update_num, epoch)
         writer.add_scalar('ade_train', ade1_tot / update_num, epoch)
         writer.add_scalar('fde_train', fde1_tot / update_num, epoch)
