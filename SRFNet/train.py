@@ -79,6 +79,7 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
+    net = net.cuda(config['gpu_id'])
 
     opt = Optimizer(net.parameters(), config)
     loss = Loss_light(config)
