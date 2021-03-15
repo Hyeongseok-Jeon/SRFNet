@@ -36,7 +36,7 @@ parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 parser.add_argument("--multi_gpu", type=bool, default=True)
-parser.add_argument("--interaction", type=str, default='none')
+parser.add_argument("--interaction", type=str, default='ego')
 args = parser.parse_args()
 
 
@@ -121,7 +121,10 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
         fde_tot = 0
         loss_tot = 0
         init_time = time.time()
+        time_ref = 0
         for i, data in enumerate(train_loader):
+            time_ref = time.time()
+
             current = (i + 1) * config['batch_size']
             percent = float(current) * 100 / batch_num
             arrow = '-' * int(percent / 100 * 20 - 1) + '>'
@@ -164,6 +167,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             opt.zero_grad()
             loss_out["loss"].backward()
             lr = opt.step(epoch)
+            print(time.time()-time_ref)
 
         if epoch % val_iters == val_iters - 1:
             if not os.path.exists(config["save_dir"]):

@@ -56,7 +56,15 @@ def batch_form(samples):
     orig = [sample['orig'] for sample in samples]
     gt_preds = [sample['gt_preds'][0] for sample in samples]
     has_preds = [sample['has_preds'][0] for sample in samples]
-    ego_feat_calc = [sample['ego_feat_calc'][0] for sample in samples]
+    ego_feat_calc =[sample['ego_feat_calc'] for sample in samples]
+
+    ego_feat_calc_mod = []
+    for i in range(30):
+        tmp = []
+        for j in range(len(ego_feat_calc)):
+            tmp.append(ego_feat_calc[j][i])
+        ego_feat_calc_mod.append(torch.cat(tmp, dim = 0))
+
     city = [sample['city'] for sample in samples]
 
     sample_mod = {'actor_ctrs': actor_ctrs,
@@ -72,7 +80,7 @@ def batch_form(samples):
                   'orig': orig,
                   'gt_preds': gt_preds,
                   'has_preds': has_preds,
-                  'ego_feat_calc': ego_feat_calc,
+                  'ego_feat_calc': ego_feat_calc_mod,
                   'city': city}
 
     return sample_mod

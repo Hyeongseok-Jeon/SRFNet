@@ -68,7 +68,7 @@ class Net_min(nn.Module):
         # prediction
         actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
 
-        if self.config['interaction'] == 0:
+        if self.config['interaction'] == 'none':
             out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
             out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
             return out_non_interact
@@ -80,10 +80,10 @@ class Net_min(nn.Module):
                     inter_feat = reaction_hidden[actor_idcs[i][j]]
                     actors_cat_sur_inter[actor_idcs[i]] = actor_base_hid * inter_feat
             out_sur_interact = self.pred_net(actors_cat_sur_inter, actor_idcs, actor_ctrs)
-            if self.config['gpu_id'] == 1:
+            if self.config['interaction'] == 'sur':
                 out_sur_interact = self.get_world_cord(out_sur_interact, rot, orig)
                 return out_sur_interact
-            elif self.config['gpu_id'] == 2:
+            elif self.config['interaction'] == 'ego':
                 out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat_calc, actor_idcs)
                 out_ego_interact = dict()
                 out_ego_interact['cls'] = out_sur_interact['cls']
@@ -655,9 +655,10 @@ class ReactNet(nn.Module):
 
         react_feat, (hn, cn) = self.react_pred(ego_feat_time_cat, (torch.zeros_like(reaction_against_ego), reaction_against_ego))
 
+        feat_tmp = react_feat.view(30*react_feat.shape[1],128)
         reacts = []
         for i in range(len(self.pred)):
-            reacts_cand = torch.cat([self.pred[i](react_feat[j]).unsqueeze(dim=0) for j in range(30)], dim=0)
+            reacts_cand = self.pred[i](feat_tmp).view(30,react_feat.shape[1],2)
             reacts.append(reacts_cand.unsqueeze(dim=0))
         reacts = torch.cat(reacts, dim=0)
 

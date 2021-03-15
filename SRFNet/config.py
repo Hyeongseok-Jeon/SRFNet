@@ -74,5 +74,5 @@ def get_config(root_path, args):
     model_name = os.path.basename(file_path).split(".")[0]
     config["save_dir"] = os.path.join(root_path, "SRFNet", "results", model_name)
     config["rot_aug"] = False
-
+    config['interaction'] = args.interaction
     return config

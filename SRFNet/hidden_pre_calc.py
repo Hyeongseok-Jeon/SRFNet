@@ -32,6 +32,8 @@ parser.add_argument('--location', type=str, default='home')
 parser.add_argument('--pre', type=bool, default=True)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
+parser.add_argument("--multi_gpu", type=bool, default=True)
+parser.add_argument("--interaction", type=str, default='ego')
 args = parser.parse_args()
 
 
