@@ -68,7 +68,7 @@ class Net_min(nn.Module):
         # prediction
         actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
 
-        if self.config['gpu_id'] == 0:
+        if self.config['gpu_id'] == 1:
             out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
             out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
             return out_non_interact
@@ -80,10 +80,10 @@ class Net_min(nn.Module):
                     inter_feat = reaction_hidden[actor_idcs[i][j]]
                     actors_cat_sur_inter[actor_idcs[i]] = actor_base_hid * inter_feat
             out_sur_interact = self.pred_net(actors_cat_sur_inter, actor_idcs, actor_ctrs)
-            if self.config['gpu_id'] == 1:
+            if self.config['gpu_id'] == 2:
                 out_sur_interact = self.get_world_cord(out_sur_interact, rot, orig)
                 return out_sur_interact
-            elif self.config['gpu_id'] == 2:
+            elif self.config['gpu_id'] == 3:
                 out_ego_interact_tmp = self.reaction_net(reaction_hidden, ego_feat, actor_idcs)
                 out_ego_interact = dict()
                 out_ego_interact['cls'] = out_sur_interact['cls']
