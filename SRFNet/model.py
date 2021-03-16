@@ -16,6 +16,67 @@ from SRFNet.layer import GraphAttentionLayer, GraphAttentionLayer_time_serial
 import time
 
 
+class Net_SRF(nn.Module):
+    def __init__(self, config):
+        super(Net_SRF, self).__init__()
+        self.config = config
+
+        self.tempAtt_net = TempAttNet(config)
+
+
+    def forward(self, inputs):
+        # construct actor feature
+        actor_ctrs = inputs[0]
+        actor_idcs_init = inputs[1]
+        actor_idcs = []
+        veh_calc = 0
+        for i in range(len(actor_idcs_init)):
+            actor_idcs.append(actor_idcs_init[i] + veh_calc)
+            veh_calc += len(actor_idcs_init[i])
+        actors = inputs[2]
+        nodes = inputs[3]
+        graph_idcs = inputs[4]
+        ego_feat = inputs[5]
+        feats = inputs[6]
+        nearest_ctrs_hist = inputs[7]
+        rot = inputs[8]
+        orig = inputs[9]
+        ego_feat_calc = inputs[10]
+        # concat actor and map features
+        actor_graph = self.actor_graph_gather(actors, nodes, actor_idcs, self.config, graph_idcs, [feats, nearest_ctrs_hist])
+        # get temporal attention matrix
+
+        [one_step_feats, adjs] = self.tempAtt_net(actor_graph)
+
+        return one_step_feats
+
+    def actor_graph_gather(self, actors, nodes, actor_idcs, config, graph_idcs, data):
+        batch_size = len(actors)
+        tot_veh_num = actor_idcs[-1][-1] + 1
+        node_feat_mask = gpu(torch.zeros(size=(tot_veh_num, 20, config['n_actor'] + config['n_map'])), config['gpu_id'])
+        gen_num = 0
+        adj_mask = gpu(torch.zeros(size=(tot_veh_num, tot_veh_num, config['n_actor'])), config['gpu_id'])
+
+        maps = []
+        for i in range(batch_size):
+            idx = data[0][i][:, :, 2:]
+            idx = torch.repeat_interleave(idx, config['n_actor'], dim=-1)
+            map_node_idx = graph_idcs[i][data[1][i].long()]
+            map_node = nodes[map_node_idx]
+            maps.append(map_node * idx)
+
+        for i in range(batch_size):
+            node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, :config['n_actor']] = actors[i]
+            node_feat_mask[gen_num:gen_num + actors[i].shape[0], :, config['n_actor']:] = maps[i]
+            adj_mask[gen_num:gen_num + actors[i].shape[0], gen_num:gen_num + actors[i].shape[0], :] = 1
+            gen_num += actors[i].shape[0]
+
+        actor_graph = dict()
+        actor_graph["node_feat"] = node_feat_mask
+        actor_graph["adj_mask"] = adj_mask
+        return actor_graph
+
+
 class Net_min(nn.Module):
     def __init__(self, config):
         super(Net_min, self).__init__()
