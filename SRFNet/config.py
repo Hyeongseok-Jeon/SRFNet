@@ -35,8 +35,8 @@ def get_config(root_path, args):
         config["batch_size"] = 1
         config["val_batch_size"] = 1
     else:
-        config["batch_size"] = 8
-        config["val_batch_size"] = 8
+        config["batch_size"] = 6
+        config["val_batch_size"] = 6
 
     if args.pre == True:
         config["batch_size"] = 1
