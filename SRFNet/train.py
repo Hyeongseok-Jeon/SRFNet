@@ -201,46 +201,46 @@ def val(config, data_loader, net, loss, post_process, epoch):
     loss_tot = 0
     batch_num = len(data_loader.dataset)
     init_time = time.time()
+    with torch.no_grad:
+        for i, data in enumerate(data_loader):
+            current = (i + 1) * config['batch_size']
+            percent = float(current) * 100 / batch_num
+            arrow = '-' * int(percent / 100 * 20 - 1) + '>'
+            spaces = ' ' * (20 - len(arrow))
+            if i == 0:
+                sys.stdout.write('\n' + ' Validation Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
 
-    for i, data in enumerate(data_loader):
-        current = (i + 1) * config['batch_size']
-        percent = float(current) * 100 / batch_num
-        arrow = '-' * int(percent / 100 * 20 - 1) + '>'
-        spaces = ' ' * (20 - len(arrow))
-        if i == 0:
-            sys.stdout.write('\n' + ' Validation Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
+            data = dict(data)
+            actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
+            actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
+            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
+            graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
+            ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
+            feats = gpu(data['feats'], gpu_id=config['gpu_id'])
+            nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
+            rot = gpu(data['rot'], gpu_id=config['gpu_id'])
+            orig = gpu(data['orig'], gpu_id=config['gpu_id'])
+            gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
+            has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
+            ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
 
-        data = dict(data)
-        actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
-        actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
-        actors = gpu(data['actors'], gpu_id=config['gpu_id'])
-        nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
-        graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
-        ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
-        feats = gpu(data['feats'], gpu_id=config['gpu_id'])
-        nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
-        rot = gpu(data['rot'], gpu_id=config['gpu_id'])
-        orig = gpu(data['orig'], gpu_id=config['gpu_id'])
-        gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
-        has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
-        ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
-
-        with torch.no_grad():
-            inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
-            out = net(inputs)
-            loss_out = loss(out, gt_preds, has_preds)
-            post_out = post_process(out, gt_preds, has_preds)
-            ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
-                                                   np.concatenate(post_out['gt_preds'], 0),
-                                                   np.concatenate(post_out['has_preds'], 0))
-            ade1_tot += ade1 * len(data["city"])
-            fde1_tot += fde1 * len(data["city"])
-            ade_tot += ade * len(data["city"])
-            fde_tot += fde * len(data["city"])
-            loss_tot += loss_out["loss"].item() * len(data["city"])
-            update_num += len(data["city"])
-    sys.stdout.write('\r' + ' Validation is completed: [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
-        loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+            with torch.no_grad():
+                inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
+                out = net(inputs)
+                loss_out = loss(out, gt_preds, has_preds)
+                post_out = post_process(out, gt_preds, has_preds)
+                ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                       np.concatenate(post_out['gt_preds'], 0),
+                                                       np.concatenate(post_out['has_preds'], 0))
+                ade1_tot += ade1 * len(data["city"])
+                fde1_tot += fde1 * len(data["city"])
+                ade_tot += ade * len(data["city"])
+                fde_tot += fde * len(data["city"])
+                loss_tot += loss_out["loss"].item() * len(data["city"])
+                update_num += len(data["city"])
+        sys.stdout.write('\r' + ' Validation is completed: [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+            loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
     net.train()
     return [loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num]
