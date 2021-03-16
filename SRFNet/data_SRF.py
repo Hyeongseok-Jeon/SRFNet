@@ -39,8 +39,29 @@ class TrajectoryDataset(Dataset):
                   'has_preds': data['has_preds'],
                   'ego_feat_calc': data['ego_feat_calc'],
                   'city': data['city']}
+        sample = self.stop_filter(sample)
+
         return sample
 
+    def stop_filter(self, sample):
+        displacement = sample['feats'][0]
+        displacements = torch.norm(torch.sum(displacement, dim=1)[:,:2], dim=1)
+
+        stop_idx_bool = displacements > 1
+        stop_idx_bool[0] = True
+        stop_idx_bool[1] = True
+        stop_idx = torch.where(stop_idx_bool)[0]
+
+        sample['actor_ctrs'][0] = sample['actor_ctrs'][0][stop_idx]
+        sample['actor_idcs'][0][0] = sample['actor_idcs'][0][0][:len(stop_idx)]
+        sample['actors'][0] = sample['actors'][0][stop_idx]
+        sample['nearest_ctrs_hist'][0] = sample['nearest_ctrs_hist'][0][stop_idx]
+        sample['feats'][0] = sample['feats'][0][stop_idx]
+        sample['gt_preds'][0] = sample['gt_preds'][0][stop_idx]
+        sample['has_preds'][0] = sample['has_preds'][0][stop_idx]
+        sample['ego_feat_calc'] = [sample['ego_feat_calc'][i][stop_idx] for i in range(30)]
+
+        return sample
 
 def batch_form(samples):
     actors = [sample['actors'][0] for sample in samples]

@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from SRFNet.data_SRF import TrajectoryDataset, batch_form
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
-from LaneGCN.utils import Optimizer, gpu
+from LaneGCN.utils import Optimizer, gpu, cpu
 from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
@@ -124,6 +124,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
         init_time = time.time()
         time_ref = 0
         for i, data in enumerate(train_loader):
+            net.zero_grad()
             current = (i + 1) * config['batch_size']
             percent = float(current) * 100 / batch_num
             arrow = '-' * int(percent / 100 * 20 - 1) + '>'
@@ -163,7 +164,6 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             loss_tot += loss_out["loss"].item() * len(data["city"])
             update_num += len(data["city"])
 
-            opt.zero_grad()
             loss_out["loss"].backward()
             lr = opt.step(epoch)
 
@@ -209,7 +209,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
         spaces = ' ' * (20 - len(arrow))
         if i == 0:
             sys.stdout.write('\n' + ' Validation Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
-        
+
         data = dict(data)
         actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
         actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
