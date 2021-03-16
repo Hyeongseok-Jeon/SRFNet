@@ -209,10 +209,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
         spaces = ' ' * (20 - len(arrow))
         if i == 0:
             sys.stdout.write('\n' + ' Validation Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
-        else:
-            sys.stdout.write('\r' + ' Validation Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
-                arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
-
+        
         data = dict(data)
         actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
         actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
