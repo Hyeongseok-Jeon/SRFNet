@@ -194,7 +194,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
     loss_tot = 0
     batch_num = len(data_loader.dataset)
     init_time = time.time()
-    with torch.no_grad:
+    with torch.no_grad():
         for i, data in enumerate(data_loader):
             current = (i + 1) * config['batch_size']
             percent = float(current) * 100 / batch_num
