@@ -262,4 +262,4 @@ if __name__ == "__main__":
     main()
 
 # TODO: revise loss function (direct MAE, likelihood, etc)
-# TODO: 
+# TODO: SRF Net in and out redefinition (using the physical signal not hidden)
