@@ -53,14 +53,14 @@ def main():
     if args.location != 'home':
         train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"] + 'train/', config)
         train_loader = DataLoader(train_dataset,
-                                  batch_size=8,
+                                  batch_size=16,
                                   num_workers=config["workers"],
                                   collate_fn=batch_form,
                                   shuffle=True,
                                   pin_memory=True)
     val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
     val_loader = DataLoader(val_dataset,
-                            batch_size=8,
+                            batch_size=16,
                             num_workers=config["val_workers"],
                             collate_fn=batch_form,
                             shuffle=True,
