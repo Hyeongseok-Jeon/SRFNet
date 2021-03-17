@@ -18,7 +18,7 @@ from SRFNet.data_SRF import TrajectoryDataset, batch_form
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
-from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess, Net_SRF
+from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess, Net_min_mod
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 import horovod.torch as hvd
@@ -35,7 +35,7 @@ parser.add_argument('--location', type=str, default='home')
 parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
-parser.add_argument("--multi_gpu", type=bool, default=False)
+parser.add_argument("--multi_gpu", type=bool, default=True)
 parser.add_argument("--interaction", type=str, default='ego')
 args = parser.parse_args()
 
@@ -46,11 +46,17 @@ def main():
     config["save_dir"] = config["save_dir"] + '_' + args.memo
     # post processing function
     post_process = PostProcess(config)
-    config["batch_size"] = 2
-    config["val_batch_size"] = 2
 
-    # data loader for training
-    if args.location != 'home':
+    if args.location == 'home':
+        debug_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
+        debug_loader = DataLoader(debug_dataset,
+                                  batch_size=config["val_batch_size"],
+                                  num_workers=config["val_workers"],
+                                  collate_fn=batch_form,
+                                  shuffle=True,
+                                  pin_memory=True)
+    else:
+        # data loader for training
         train_dataset = TrajectoryDataset(config["train_meta"], config["data_root"] + 'train/', config)
         train_loader = DataLoader(train_dataset,
                                   batch_size=config["batch_size"],
@@ -58,15 +64,15 @@ def main():
                                   collate_fn=batch_form,
                                   shuffle=True,
                                   pin_memory=True)
-    val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
-    val_loader = DataLoader(val_dataset,
-                            batch_size=config["batch_size"],
-                            num_workers=config["val_workers"],
-                            collate_fn=batch_form,
-                            shuffle=True,
-                            pin_memory=True)
+        val_dataset = TrajectoryDataset(config["val_meta"], config["data_root"] + 'val/', config)
+        val_loader = DataLoader(val_dataset,
+                                batch_size=config["val_batch_size"],
+                                num_workers=config["val_workers"],
+                                collate_fn=batch_form,
+                                shuffle=True,
+                                pin_memory=True)
 
-    net = Net_SRF(config)
+    net = Net_min_mod(config)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()
@@ -76,25 +82,29 @@ def main():
     net = net.cuda(config['gpu_id'])
 
     opt = Optimizer(net.parameters(), config)
-    loss = torch.nn.L1Loss()
-    # if args.multi_gpu:
-    #     hvd.init()
-    #     torch.cuda.set_device(hvd.local_rank())
-    #     if args.location == 'home':
-    #         debug_sampler = torch.utils.data.distributed.DistributedSampler(
-    #             debug_dataset, num_replicas=hvd.size(), rank=hvd.rank())
-    #         debug_loader = torch.utils.data.DataLoader(debug_dataset,
-    #                                                    batch_size=config["batch_size"],
-    #                                                    num_workers=config["workers"],
-    #                                                    collate_fn=batch_form,
-    #                                                    pin_memory=True,
-    #                                                    sampler=debug_sampler)
-    #         net = net.cuda()
-    #         opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
-    #         hvd.broadcast_parameters(net.state_dict(), root_rank=0)
-    # else:
-    #     net = net.cuda(config['gpu_id'])
-    train(config, train_loader, net, loss, post_process, opt, val_loader)
+    loss = Loss_light(config)
+    if args.multi_gpu:
+        hvd.init()
+        torch.cuda.set_device(hvd.local_rank())
+        if args.location == 'home':
+            debug_sampler = torch.utils.data.distributed.DistributedSampler(
+                debug_dataset, num_replicas=hvd.size(), rank=hvd.rank())
+            debug_loader = torch.utils.data.DataLoader(debug_dataset,
+                                                       batch_size=config["batch_size"],
+                                                       num_workers=config["workers"],
+                                                       collate_fn=batch_form,
+                                                       pin_memory=True,
+                                                       sampler=debug_sampler)
+            net = net.cuda()
+            opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
+            hvd.broadcast_parameters(net.state_dict(), root_rank=0)
+    else:
+        net = net.cuda(config['gpu_id'])
+
+    if args.location == 'home':
+        train(config, debug_loader, net, loss, post_process, opt, debug_loader)
+    else:
+        train(config, train_loader, net, loss, post_process, opt, val_loader)
 
 
 def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
@@ -115,15 +125,15 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
         time_ref = 0
         for i, data in enumerate(train_loader):
             net.zero_grad()
-            current = (i + 1) * config["batch_size"]
+            current = (i + 1) * config['batch_size']
             percent = float(current) * 100 / batch_num
             arrow = '-' * int(percent / 100 * 20 - 1) + '>'
             spaces = ' ' * (20 - len(arrow))
             if i == 0:
                 sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
             else:
-                sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f]' % (
-                    epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num))
+                sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                    epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
             actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
@@ -141,23 +151,20 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
 
             out = net(inputs)
-            vehicle_num = [len(feats[i]) for i in range(len(feats))]
-            out_batch = []
-            veh_calc = 0
-            for j in range(len(feats)):
-                out_batch.append(out[veh_calc:veh_calc+vehicle_num[j] *20,:])
-                veh_calc = veh_calc +veh_calc
-            out_final = []
-            for j in range(len(feats)):
-                out_final.append(torch.cat([out_batch[j][vehicle_num[j]*i:vehicle_num[j]*(i+1), :].unsqueeze(dim=1) for i in range(20)], dim=1))
+            loss_out = loss(out, gt_preds, has_preds)
+            post_out = post_process(out, gt_preds, has_preds)
+            ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                   np.concatenate(post_out['gt_preds'], 0),
+                                                   np.concatenate(post_out['has_preds'], 0))
 
-            pred_out = torch.cat(out_final, dim = 0)
-            GT = torch.cat(actors, dim = 0)
-            pred_loss = loss(pred_out, GT)
-            loss_tot = loss_tot + pred_loss.item() * len(data["city"])
+            ade1_tot += ade1 * len(data["city"])
+            fde1_tot += fde1 * len(data["city"])
+            ade_tot += ade * len(data["city"])
+            fde_tot += fde * len(data["city"])
+            loss_tot += loss_out["loss"].item() * len(data["city"])
             update_num += len(data["city"])
 
-            pred_loss.backward()
+            loss_out["loss"].backward()
             lr = opt.step(epoch)
 
         if epoch % val_iters == val_iters - 1:
@@ -194,7 +201,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
     loss_tot = 0
     batch_num = len(data_loader.dataset)
     init_time = time.time()
-    with torch.no_grad():
+    with torch.no_grad:
         for i, data in enumerate(data_loader):
             current = (i + 1) * config['batch_size']
             percent = float(current) * 100 / batch_num
@@ -221,22 +228,17 @@ def val(config, data_loader, net, loss, post_process, epoch):
             with torch.no_grad():
                 inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
                 out = net(inputs)
-                vehicle_num = [len(feats[i]) for i in range(len(feats))]
-                out_batch = []
-                veh_calc = 0
-                for j in range(len(feats)):
-                    out_batch.append(out[veh_calc:veh_calc + vehicle_num[j] * 20, :])
-                    veh_calc = veh_calc + veh_calc
-                out_final = []
-                for j in range(len(feats)):
-                    out_final.append(torch.cat([out_batch[j][vehicle_num[j] * i:vehicle_num[j] * (i + 1), :].unsqueeze(dim=1) for i in range(20)], dim=1))
-
-                pred_out = torch.cat(out_final, dim=0)
-                GT = torch.cat(actors, dim=0)
-                pred_loss = loss(pred_out, GT)
-                loss_tot = loss_tot + pred_loss.item() * len(data["city"])
+                loss_out = loss(out, gt_preds, has_preds)
+                post_out = post_process(out, gt_preds, has_preds)
+                ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                       np.concatenate(post_out['gt_preds'], 0),
+                                                       np.concatenate(post_out['has_preds'], 0))
+                ade1_tot += ade1 * len(data["city"])
+                fde1_tot += fde1 * len(data["city"])
+                ade_tot += ade * len(data["city"])
+                fde_tot += fde * len(data["city"])
+                loss_tot += loss_out["loss"].item() * len(data["city"])
                 update_num += len(data["city"])
-
         sys.stdout.write('\r' + ' Validation is completed: [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
             loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
@@ -258,3 +260,6 @@ def save_ckpt(net, opt, save_dir, epoch):
 
 if __name__ == "__main__":
     main()
+
+# TODO: revise loss function (direct MAE, likelihood, etc)
+# TODO: SRF Net in and out redefinition (using the physical signal not hidden)
