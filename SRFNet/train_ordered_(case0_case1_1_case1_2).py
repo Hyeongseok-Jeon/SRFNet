@@ -248,7 +248,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                 with open(config["save_dir"] + '/info.pickle', 'wb') as f:
                     pickle.dump([args, config], f, pickle.HIGHEST_PROTOCOL)
                 first_val = False
-            [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, losses, post_process, epoch)
+            [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, post_process, epoch)
             writer.add_scalar('loss_val', loss_val, epoch)
             writer.add_scalar('ade_val', ade1_val, epoch)
             writer.add_scalar('fde_val', fde1_val, epoch)
@@ -265,7 +265,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
         writer.add_scalar('fde6_train', fde_tot / update_num, epoch)
 
 
-def val(config, data_loader, net, loss, post_process, epoch):
+def val(config, data_loader, net, post_process, epoch):
     net.eval()
     update_num = 0
     ade1_tot = 0
@@ -282,9 +282,11 @@ def val(config, data_loader, net, loss, post_process, epoch):
             arrow = '-' * int(percent / 100 * 20 - 1) + '>'
             spaces = ' ' * (20 - len(arrow))
             if i == 0:
-                sys.stdout.write('\n' + ' Validation Progress: [%s%s] %d %%  time: %f sec' % (arrow, spaces, percent, time.time() - init_time))
+                sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
+            else:
+                sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                    epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
-            data = dict(data)
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
             actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
             actors_hidden = gpu(data['actors_hidden'], gpu_id=config['gpu_id'])
@@ -299,21 +301,53 @@ def val(config, data_loader, net, loss, post_process, epoch):
             has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
             ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
             actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            graph_mod = gpu(data['graph_mod'], gpu_id=config['gpu_id'])
 
-            with torch.no_grad():
-                inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors]
-                out = net(inputs)
-                loss_out = loss(out, gt_preds, has_preds)
+            inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors, data, graph_mod]
+            out = net(inputs)
+
+            if args.case == 0 and args.subcase == 1:
                 post_out = post_process(out, gt_preds, has_preds)
                 ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
                                                        np.concatenate(post_out['gt_preds'], 0),
                                                        np.concatenate(post_out['has_preds'], 0))
+
                 ade1_tot += ade1 * len(data["city"])
                 fde1_tot += fde1 * len(data["city"])
                 ade_tot += ade * len(data["city"])
                 fde_tot += fde * len(data["city"])
-                loss_tot += loss_out["loss"].item() * len(data["city"])
                 update_num += len(data["city"])
+
+            elif args.case == 1:
+                out_non_interact = out[0]
+                out_sur_interact = out[1]
+                out_tot = out[2]
+                if args.subcase == 1:
+                    post_out = post_process(out_tot, gt_preds, has_preds)
+                    ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                           np.concatenate(post_out['gt_preds'], 0),
+                                                           np.concatenate(post_out['has_preds'], 0))
+
+                    ade1_tot += ade1 * len(data["city"])
+                    fde1_tot += fde1 * len(data["city"])
+                    ade_tot += ade * len(data["city"])
+                    fde_tot += fde * len(data["city"])
+                    update_num += len(data["city"])
+
+                elif args.subcase == 2:
+                    out_added = out_non_interact
+                    out_added['reg'] = [out_added['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_added['reg']))]
+                    post_out = post_process(out_added, gt_preds, has_preds)
+                    ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                           np.concatenate(post_out['gt_preds'], 0),
+                                                           np.concatenate(post_out['has_preds'], 0))
+
+                    ade1_tot += ade1 * len(data["city"])
+                    fde1_tot += fde1 * len(data["city"])
+                    ade_tot += ade * len(data["city"])
+                    fde_tot += fde * len(data["city"])
+                    update_num += len(data["city"])
+
         sys.stdout.write('\r' + ' Validation is completed: [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
             loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
