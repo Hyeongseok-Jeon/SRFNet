@@ -42,9 +42,6 @@ parser.add_argument("--case", type=int, default=None)
 parser.add_argument("--subcase", type=int, default=None)
 args = parser.parse_args()
 
-args.case = 1
-args.subcase = 3
-
 def main():
     config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
