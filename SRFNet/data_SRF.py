@@ -42,7 +42,7 @@ class TrajectoryDataset(Dataset):
                   'ego_feat_calc': data['ego_feat_calc'],
                   'graph_mod': data['graph_mod'],
                   'city': data['city']}
-        sample = self.stop_filter(sample)
+        # sample = self.stop_filter(sample)
 
         return sample
 
