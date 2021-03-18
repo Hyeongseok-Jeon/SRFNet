@@ -61,7 +61,7 @@ class model_case_1(nn.Module):
         self.map_net = MapNet(config).cuda()
         self.fusion_net = FusionNet(config).cuda()
         self.pred_net = PredNet(config).cuda()
-        self.inter_pred_net = PredNet(config).cuda()
+        self.inter_pred_net = ReactPredNet(config).cuda()
 
     def forward(self, inputs):
         actor_ctrs = inputs[0]
@@ -108,7 +108,7 @@ class model_case_1(nn.Module):
 
         out = dict()
         out['cls'] = out_non_interact['cls']
-        out['reg'] = [out_non_interact['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_non_interact['reg']))]
+        out['reg'] = [out_non_interact['reg'][i] + torch.repeat_interleave(3 * out_sur_interact['reg'][i], 6, dim=1) for i in range(len(out_non_interact['reg']))]
         return [out_non_interact, out_sur_interact, out]
 
 
@@ -431,6 +431,61 @@ class PredNet(nn.Module):
         dest_ctrs = reg[:, :, -1].detach()
         feats = self.att_dest(actors, torch.cat(actor_ctrs, 0), dest_ctrs)
         cls = self.cls(feats).view(-1, self.config["num_mods"])
+
+        cls, sort_idcs = cls.sort(1, descending=True)
+        row_idcs = torch.arange(len(sort_idcs)).long().to(sort_idcs.device)
+        row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
+        sort_idcs = sort_idcs.view(-1)
+        reg = reg[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
+
+        out = dict()
+        out["cls"], out["reg"] = [], []
+        for i in range(len(actor_idcs)):
+            idcs = actor_idcs[i]
+            ctrs = actor_ctrs[i].view(-1, 1, 1, 2)
+            out["cls"].append(cls[idcs])
+            out["reg"].append(reg[idcs])
+        return out
+
+
+
+class ReactPredNet(nn.Module):
+    """
+    Final motion forecasting with Linear Residual block
+    """
+
+    def __init__(self, config):
+        super(ReactPredNet, self).__init__()
+        self.config = config
+        norm = "GN"
+        ng = 1
+
+        n_actor = config["n_actor"]
+
+        pred = []
+        pred.append(
+            nn.Sequential(
+                LinearRes(n_actor, n_actor, norm=norm, ng=ng),
+                nn.Linear(n_actor, 2 * config["num_preds"]),
+            )
+        )
+        self.pred = nn.ModuleList(pred)
+
+        self.att_dest = AttDest(n_actor)
+        self.cls = nn.Sequential(
+            LinearRes(n_actor, n_actor, norm=norm, ng=ng), nn.Linear(n_actor, 1)
+        )
+
+    def forward(self, actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor]) -> Dict[str, List[Tensor]]:
+        preds = []
+        for i in range(len(self.pred)):
+            preds.append(F.tanh(self.pred[i](actors)))
+        reg = torch.cat([x.unsqueeze(1) for x in preds], 1)
+        reg = reg.view(reg.size(0), reg.size(1), -1, 2)
+
+        dest_ctrs = reg[:, :, -1].detach()
+        feats = self.att_dest(actors, torch.cat(actor_ctrs, 0), dest_ctrs)
+        cls = self.cls(feats).view(-1, 1)
 
         cls, sort_idcs = cls.sort(1, descending=True)
         row_idcs = torch.arange(len(sort_idcs)).long().to(sort_idcs.device)

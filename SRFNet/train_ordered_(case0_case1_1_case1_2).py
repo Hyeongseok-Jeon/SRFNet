@@ -42,6 +42,8 @@ parser.add_argument("--case", type=int, default=None)
 parser.add_argument("--subcase", type=int, default=None)
 args = parser.parse_args()
 
+args.case = 1
+args.subcase = 3
 
 def main():
     config = get_config(root_path, args)
@@ -240,6 +242,27 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     fde_tot += fde * len(data["city"])
                     loss_tot += loss_out1["loss"].item() * len(data["city"])
                     update_num += len(data["city"])
+                elif args.subcase == 3:
+                    gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
+                    loss_out = losses[0](torch.cat(gt_new,dim=0), torch.cat(out_sur_interact['reg'], dim=0))
+                    out_added = out_non_interact
+                    out_added['reg'] = [out_added['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_added['reg']))]
+
+                    post_out = post_process(out_added, gt_preds, has_preds)
+                    ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                           np.concatenate(post_out['gt_preds'], 0),
+                                                           np.concatenate(post_out['has_preds'], 0))
+
+                    ade1_tot += ade1 * len(data["city"])
+                    fde1_tot += fde1 * len(data["city"])
+                    ade_tot += ade * len(data["city"])
+                    fde_tot += fde * len(data["city"])
+                    loss_tot += loss_out.item() * len(data["city"])
+                    update_num += len(data["city"])
+
+                    loss_out.backward()
+                    lr = opts[0].step(epoch)
+
 
         if epoch % val_iters == val_iters - 1:
             if not os.path.exists(config["save_dir"]):
@@ -371,3 +394,4 @@ if __name__ == "__main__":
     main()
 
 # TODO: revise map consideration << prediction head 쪽에서 고려하는 방향으로
+# TODO:
