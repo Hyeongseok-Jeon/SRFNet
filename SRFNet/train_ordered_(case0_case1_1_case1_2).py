@@ -42,8 +42,7 @@ parser.add_argument("--case", type=str, default=None)
 parser.add_argument("--subcase", type=str, default=None)
 args = parser.parse_args()
 
-args.case = 1
-args.subcase = 3
+
 def main():
     config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
@@ -100,6 +99,12 @@ def main():
         opt2 = Optimizer(params2, config)
         opts = [opt1, opt2]
         losses = [loss, loss_delta]
+    elif args.subcase == 3:
+        loss_delta = torch.nn.L1Loss()
+        params = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        opt1 = Optimizer(params, config)
+        opts = [opt1]
+        losses = [loss_delta]
 
     if args.location == 'home':
         train(config, debug_loader, net, losses, post_process, opts, debug_loader)
