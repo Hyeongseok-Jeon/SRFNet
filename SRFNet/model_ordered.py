@@ -27,6 +27,8 @@ class model_case_0(nn.Module):
         actor_ctrs = inputs[0]
         actor_idcs_init = inputs[1]
         actors = inputs[11]
+        rot = inputs[8]
+        orig = inputs[9]
 
         actor_idcs = []
         veh_calc = 0
@@ -40,13 +42,20 @@ class model_case_0(nn.Module):
         actors = self.actor_net(actors, actor_idcs)
         actors_cat = torch.cat([actors[i][:, -1, :] for i in range(len(actors))], dim=0)
         out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
+        out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
 
         return out_non_interact
 
+    def get_world_cord(self, out, rot, orig):
+        for i in range(len(out["reg"])):
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i][0]) + orig[i][0].view(
+                1, 1, 1, -1
+            )
+        return out
 
 class model_case_1(nn.Module):
     def __init__(self, config):
-        super(model_case_0, self).__init__()
+        super(model_case_1, self).__init__()
         self.config = config
         self.actor_net = ActorNet(config).cuda()
         self.map_net = MapNet(config).cuda()
@@ -63,6 +72,8 @@ class model_case_1(nn.Module):
         actors = inputs[11]
         data = inputs[12]
         graph_mod = inputs[13]
+        rot = inputs[8]
+        orig = inputs[9]
 
         actor_idcs = []
         veh_calc = 0
@@ -90,11 +101,23 @@ class model_case_1(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         out_non_interact = self.pred_net(actors_pred_cat, actor_idcs, actor_ctrs)
+        out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
+
         out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.get_world_cord(out_sur_interact, rot, [[torch.zeros_like(orig[i][0])] for i in range(len(orig))])
+
         out = dict()
         out['cls'] = out_non_interact['cls']
         out['reg'] = [out_non_interact['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_non_interact['reg']))]
-        return out_non_interact, out_sur_interact, out
+        return [out_non_interact, out_sur_interact, out]
+
+
+    def get_world_cord(self, out, rot, orig):
+        for i in range(len(out["reg"])):
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i][0]) + orig[i][0].view(
+                1, 1, 1, -1
+            )
+        return out
 
     def graph_adj(self, actors_cat, nearest_ctrs_cat, nodes):
         edge = torch.cat([nodes[nearest_ctrs_cat[i].long()].unsqueeze(dim=0) for i in range(actors_cat.shape[0])], dim=0)
@@ -680,5 +703,7 @@ def pred_metrics(preds, gt_preds, has_preds):
     ade = err.mean()
     fde = err[:, -1].mean()
     return ade1, fde1, ade, fde, min_idcs
+
+
 
 # TODO: need to consider global position of the vehicles in GAT

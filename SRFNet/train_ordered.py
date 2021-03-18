@@ -36,11 +36,14 @@ parser.add_argument('--location', type=str, default='home')
 parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
-parser.add_argument("--multi_gpu", type=bool, default=True)
-parser.add_argument("--interaction", type=str, default='ego')
+parser.add_argument("--multi_gpu", type=bool, default=False)
+parser.add_argument("--interaction", type=str, default=None)
+parser.add_argument("--case", type=str, default=None)
+parser.add_argument("--subcase", type=str, default=None)
 args = parser.parse_args()
 
-
+args.case = 1
+args.subcase = 3
 def main():
     config = get_config(root_path, args)
     config['gpu_id'] = args.gpu_id
@@ -72,8 +75,10 @@ def main():
                                 collate_fn=batch_form,
                                 shuffle=True,
                                 pin_memory=True)
-
-    net = model_case_0(config)
+    if args.case == 0:
+        net = model_case_0(config)
+    elif args.case == 1:
+        net = model_case_1(config)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()
@@ -81,34 +86,28 @@ def main():
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
     net = net.cuda(config['gpu_id'])
-
-    opt = Optimizer(net.parameters(), config)
     loss = Loss_light(config)
-    if args.multi_gpu:
-        hvd.init()
-        torch.cuda.set_device(hvd.local_rank())
-        if args.location == 'home':
-            debug_sampler = torch.utils.data.distributed.DistributedSampler(
-                debug_dataset, num_replicas=hvd.size(), rank=hvd.rank())
-            debug_loader = torch.utils.data.DataLoader(debug_dataset,
-                                                       batch_size=config["batch_size"],
-                                                       num_workers=config["workers"],
-                                                       collate_fn=batch_form,
-                                                       pin_memory=True,
-                                                       sampler=debug_sampler)
-            net = net.cuda()
-            opt.opt = hvd.DistributedOptimizer(opt.opt, named_parameters=net.named_parameters())
-            hvd.broadcast_parameters(net.state_dict(), root_rank=0)
-    else:
-        net = net.cuda(config['gpu_id'])
+
+    if args.subcase == 1:
+        opt = Optimizer(net.parameters(), config)
+        opts = [opt]
+        losses = [loss]
+    elif args.subcase == 2:
+        loss_delta = torch.nn.L1Loss()
+        params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
+        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        opt1 = Optimizer(params1, config)
+        opt2 = Optimizer(params2, config)
+        opts = [opt1, opt2]
+        losses = [loss, loss_delta]
 
     if args.location == 'home':
-        train(config, debug_loader, net, loss, post_process, opt, debug_loader)
+        train(config, debug_loader, net, losses, post_process, opts, debug_loader)
     else:
-        train(config, train_loader, net, loss, post_process, opt, val_loader)
+        train(config, train_loader, net, losses, post_process, opts, val_loader)
 
 
-def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
+def train(config, train_loader, net, losses, post_process, opts, val_loader=None):
     net.train()
     val_iters = config["val_iters"]
     save_iters = config['save_freq']
@@ -136,6 +135,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
                     epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
+            data_sub = data.copy()
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
             actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
             actors_hidden = gpu(data['actors_hidden'], gpu_id=config['gpu_id'])
@@ -153,23 +153,88 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             graph_mod = gpu(data['graph_mod'], gpu_id=config['gpu_id'])
 
             inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors, data, graph_mod]
-
             out = net(inputs)
-            loss_out = loss(out, gt_preds, has_preds)
-            post_out = post_process(out, gt_preds, has_preds)
-            ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
-                                                   np.concatenate(post_out['gt_preds'], 0),
-                                                   np.concatenate(post_out['has_preds'], 0))
+            if args.case == 0 and args.subcase == 1:
+                loss_out = losses[0](out, gt_preds, has_preds)
+                post_out = post_process(out, gt_preds, has_preds)
+                ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                       np.concatenate(post_out['gt_preds'], 0),
+                                                       np.concatenate(post_out['has_preds'], 0))
 
-            ade1_tot += ade1 * len(data["city"])
-            fde1_tot += fde1 * len(data["city"])
-            ade_tot += ade * len(data["city"])
-            fde_tot += fde * len(data["city"])
-            loss_tot += loss_out["loss"].item() * len(data["city"])
-            update_num += len(data["city"])
+                ade1_tot += ade1 * len(data["city"])
+                fde1_tot += fde1 * len(data["city"])
+                ade_tot += ade * len(data["city"])
+                fde_tot += fde * len(data["city"])
+                loss_tot += loss_out["loss"].item() * len(data["city"])
+                update_num += len(data["city"])
 
-            loss_out["loss"].backward()
-            lr = opt.step(epoch)
+                loss_out["loss"].backward()
+                lr = opts[0].step(epoch)
+            elif args.case == 1:
+                out_non_interact = out[0]
+                out_sur_interact = out[1]
+                out_tot = out[2]
+                if args.subcase == 1:
+                    loss_out = losses[0](out_tot, gt_preds, has_preds)
+                    post_out = post_process(out_tot, gt_preds, has_preds)
+                    ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                           np.concatenate(post_out['gt_preds'], 0),
+                                                           np.concatenate(post_out['has_preds'], 0))
+
+                    ade1_tot += ade1 * len(data["city"])
+                    fde1_tot += fde1 * len(data["city"])
+                    ade_tot += ade * len(data["city"])
+                    fde_tot += fde * len(data["city"])
+                    loss_tot += loss_out["loss"].item() * len(data["city"])
+                    update_num += len(data["city"])
+
+                    loss_out["loss"].backward()
+                    lr = opts[0].step(epoch)
+                elif args.subcase == 2:
+                    loss_out1 = losses[0](out_non_interact, gt_preds, has_preds)
+                    loss_out1['loss'].backward()
+                    lr = opts[0].step(epoch)
+                    net.zero_grad()
+
+                    actor_ctrs = gpu(data_sub['actor_ctrs'], gpu_id=config['gpu_id'])
+                    actor_idcs = gpu(data_sub['actor_idcs'], gpu_id=config['gpu_id'])
+                    actors_hidden = gpu(data_sub['actors_hidden'], gpu_id=config['gpu_id'])
+                    nodes = gpu(data_sub['nodes'], gpu_id=config['gpu_id'])
+                    graph_idcs = gpu(data_sub['graph_idcs'], gpu_id=config['gpu_id'])
+                    ego_feat = gpu(data_sub['ego_feat'], gpu_id=config['gpu_id'])
+                    feats = gpu(data_sub['feats'], gpu_id=config['gpu_id'])
+                    nearest_ctrs_hist = gpu(data_sub['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
+                    rot = gpu(data_sub['rot'], gpu_id=config['gpu_id'])
+                    orig = gpu(data_sub['orig'], gpu_id=config['gpu_id'])
+                    gt_preds = gpu(data_sub['gt_preds'], gpu_id=config['gpu_id'])
+                    has_preds = gpu(data_sub['has_preds'], gpu_id=config['gpu_id'])
+                    ego_feat_calc = gpu(data_sub['ego_feat_calc'], gpu_id=config['gpu_id'])
+                    actors = gpu(data_sub['actors'], gpu_id=config['gpu_id'])
+                    graph_mod = gpu(data_sub['graph_mod'], gpu_id=config['gpu_id'])
+
+                    inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors, data, graph_mod]
+                    out = net(inputs)
+                    out_non_interact = out[0]
+                    out_sur_interact = out[1]
+
+                    gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
+                    loss_out2 = losses[1](torch.cat(gt_new,dim=0), torch.cat(out_sur_interact['reg'], dim=0))
+                    loss_out2.backward()
+                    lr = opts[1].step(epoch)
+
+                    out_added = out_non_interact
+                    out_added['reg'] = [out_added['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_added['reg']))]
+                    post_out = post_process(out_added, gt_preds, has_preds)
+                    ade1, fde1, ade, fde, _ = pred_metrics(np.concatenate(post_out['preds'], 0),
+                                                           np.concatenate(post_out['gt_preds'], 0),
+                                                           np.concatenate(post_out['has_preds'], 0))
+
+                    ade1_tot += ade1 * len(data["city"])
+                    fde1_tot += fde1 * len(data["city"])
+                    ade_tot += ade * len(data["city"])
+                    fde_tot += fde * len(data["city"])
+                    loss_tot += loss_out1["loss"].item() * len(data["city"])
+                    update_num += len(data["city"])
 
         if epoch % val_iters == val_iters - 1:
             if not os.path.exists(config["save_dir"]):
@@ -178,7 +243,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 with open(config["save_dir"] + '/info.pickle', 'wb') as f:
                     pickle.dump([args, config], f, pickle.HIGHEST_PROTOCOL)
                 first_val = False
-            [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, loss, post_process, epoch)
+            [loss_val, ade1_val, fde1_val, ade6_val, fde6_val] = val(config, val_loader, net, losses, post_process, epoch)
             writer.add_scalar('loss_val', loss_val, epoch)
             writer.add_scalar('ade_val', ade1_val, epoch)
             writer.add_scalar('fde_val', fde1_val, epoch)
@@ -187,7 +252,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
         if epoch % save_iters == save_iters - 1:
             if not os.path.exists(config["save_dir"]):
                 os.makedirs(config["save_dir"])
-            save_ckpt(net, opt, config["save_dir"], epoch)
+            save_ckpt(net, opts, config["save_dir"], epoch)
         writer.add_scalar('loss_train', loss_tot / update_num, epoch)
         writer.add_scalar('ade_train', ade1_tot / update_num, epoch)
         writer.add_scalar('fde_train', fde1_tot / update_num, epoch)
@@ -266,5 +331,4 @@ def save_ckpt(net, opt, save_dir, epoch):
 if __name__ == "__main__":
     main()
 
-# TODO: revise loss function (direct MAE, likelihood, etc)
-# TODO: SRF Net in and out redefinition (using the physical signal not hidden)
+# TODO: revise map consideration << prediction head 쪽에서 고려하는 방향으로
