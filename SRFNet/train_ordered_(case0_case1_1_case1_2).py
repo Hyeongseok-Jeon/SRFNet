@@ -38,8 +38,8 @@ parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 parser.add_argument("--multi_gpu", type=bool, default=False)
 parser.add_argument("--interaction", type=str, default=None)
-parser.add_argument("--case", type=str, default=None)
-parser.add_argument("--subcase", type=str, default=None)
+parser.add_argument("--case", type=int, default=None)
+parser.add_argument("--subcase", type=int, default=None)
 args = parser.parse_args()
 
 
