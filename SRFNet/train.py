@@ -18,7 +18,7 @@ from SRFNet.data_SRF import TrajectoryDataset, batch_form
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
-from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess
+from SRFNet.model import Net_min, Loss, Net_full, Loss_light, PostProcess
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 import horovod.torch as hvd
@@ -137,7 +137,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
 
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
             actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
-            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            actors_hidden = gpu(data['actors_hidden'], gpu_id=config['gpu_id'])
             nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
             graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
             ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
@@ -148,7 +148,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
             has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
             ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
-            inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
+            inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
 
             out = net(inputs)
             loss_out = loss(out, gt_preds, has_preds)
@@ -213,7 +213,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
             data = dict(data)
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
             actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
-            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            actors_hidden = gpu(data['actors_hidden'], gpu_id=config['gpu_id'])
             nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
             graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
             ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
@@ -226,7 +226,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
             ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
 
             with torch.no_grad():
-                inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
+                inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
                 out = net(inputs)
                 loss_out = loss(out, gt_preds, has_preds)
                 post_out = post_process(out, gt_preds, has_preds)

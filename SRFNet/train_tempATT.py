@@ -18,7 +18,7 @@ from SRFNet.data_SRF import TrajectoryDataset, batch_form
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
-from SRFNet.model import Net_min, Loss, Net, Loss_light, PostProcess, Net_SRF
+from SRFNet.model import Net_min, Loss, Net_full, Loss_light, PostProcess, Net_SRF
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 import horovod.torch as hvd
@@ -127,7 +127,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
 
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
             actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
-            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+            actors_hidden = gpu(data['actors_hidden'], gpu_id=config['gpu_id'])
             nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
             graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
             ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
@@ -138,7 +138,9 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
             gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
             has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
             ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
-            inputs = [actor_ctrs, actor_idcs, actors, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc]
+            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
+
+            inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors]
 
             out = net(inputs)
             vehicle_num = [len(feats[i]) for i in range(len(feats))]
@@ -152,7 +154,7 @@ def train(config, train_loader, net, loss, post_process, opt, val_loader=None):
                 out_final.append(torch.cat([out_batch[j][vehicle_num[j]*i:vehicle_num[j]*(i+1), :].unsqueeze(dim=1) for i in range(20)], dim=1))
 
             pred_out = torch.cat(out_final, dim = 0)
-            GT = torch.cat(actors, dim = 0)
+            GT = torch.cat(actors_hidden, dim = 0)
             pred_loss = loss(pred_out, GT)
             loss_tot = loss_tot + pred_loss.item() * len(data["city"])
             update_num += len(data["city"])

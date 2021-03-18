@@ -23,21 +23,24 @@ class TrajectoryDataset(Dataset):
         data_name = os.path.join(data_path, self.meta.iloc[idx, 0])
         with open(data_name, 'rb') as f:
             data = pickle.load(f)
+        actors, _ = self.actor_gather(data["feats"][0])
 
-        sample = {'actor_ctrs': data['ctrs'],
+        sample = {'actors': actors,
+                  'actor_ctrs': data['ctrs'],
                   'actor_idcs': data['actor_idcs'],
-                  'actors': data['actors_hidden'],
+                  'actors_hidden': data['actors_hidden'],
                   'nodes': data['node'],
                   'graph_idcs': data['graph_idcs'],
                   'ego_feat': data['ego_feats'],
                   'nearest_ctrs_hist': data['nearest_ctrs_hist'],
-                  'feats' : data['feats'],
+                  'feats': data['feats'],
                   'file_name': data['file_name'],
                   'rot': data['rot'],
                   'orig': data['orig'],
                   'gt_preds': data['gt_preds'],
                   'has_preds': data['has_preds'],
                   'ego_feat_calc': data['ego_feat_calc'],
+                  'graph_mod': data['graph_mod'],
                   'city': data['city']}
         sample = self.stop_filter(sample)
 
@@ -54,7 +57,7 @@ class TrajectoryDataset(Dataset):
 
         sample['actor_ctrs'][0] = sample['actor_ctrs'][0][stop_idx]
         sample['actor_idcs'][0][0] = sample['actor_idcs'][0][0][:len(stop_idx)]
-        sample['actors'][0] = sample['actors'][0][stop_idx]
+        sample['actors_hidden'][0] = sample['actors_hidden'][0][stop_idx]
         sample['nearest_ctrs_hist'][0] = sample['nearest_ctrs_hist'][0][stop_idx]
         sample['feats'][0] = sample['feats'][0][stop_idx]
         sample['gt_preds'][0] = sample['gt_preds'][0][stop_idx]
@@ -63,8 +66,26 @@ class TrajectoryDataset(Dataset):
 
         return sample
 
+    def actor_gather(self, actors):
+        num_actors = len(actors)
+        actors_time = []
+        for j in range(20):
+            zero_pad = torch.zeros_like(actors)[:, j + 1:, :]
+            tmp = actors[:, :j + 1, :]
+            actors_time.append(torch.transpose(torch.cat((zero_pad, tmp), dim=1), 2, 1))
+
+        actors = torch.cat(actors_time, dim=0)
+
+        actor_idcs = []
+        idcs = np.arange(0, num_actors)
+        actor_idcs.append(idcs)
+
+        return actors, actor_idcs
+
+
 def batch_form(samples):
-    actors = [sample['actors'][0] for sample in samples]
+    actors = [sample['actors'] for sample in samples]
+    actors_hidden = [sample['actors_hidden'][0] for sample in samples]
     actor_idcs = [sample['actor_idcs'][0][0] for sample in samples]
     actor_ctrs = [sample['actor_ctrs'][0] for sample in samples]
     file_name = [sample['file_name'][0] for sample in samples]
@@ -78,6 +99,7 @@ def batch_form(samples):
     gt_preds = [sample['gt_preds'][0] for sample in samples]
     has_preds = [sample['has_preds'][0] for sample in samples]
     ego_feat_calc =[sample['ego_feat_calc'] for sample in samples]
+    graph_mod =[sample['graph_mod'][0] for sample in samples]
 
     ego_feat_calc_mod = []
     for i in range(30):
@@ -88,9 +110,10 @@ def batch_form(samples):
 
     city = [sample['city'] for sample in samples]
 
-    sample_mod = {'actor_ctrs': actor_ctrs,
+    sample_mod = {'actors': actors,
+                  'actor_ctrs': actor_ctrs,
                   'actor_idcs': actor_idcs,
-                  'actors': actors,
+                  'actors_hidden': actors_hidden,
                   'nodes': nodes,
                   'graph_idcs': graph_idcs,
                   'ego_feat': ego_feats,
@@ -102,6 +125,7 @@ def batch_form(samples):
                   'gt_preds': gt_preds,
                   'has_preds': has_preds,
                   'ego_feat_calc': ego_feat_calc_mod,
+                  'graph_mod': graph_mod,
                   'city': city}
 
     return sample_mod

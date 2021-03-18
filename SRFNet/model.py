@@ -187,9 +187,9 @@ class Net_min(nn.Module):
         return actor_graph
 
 
-class Net(nn.Module):
+class Net_full(nn.Module):
     def __init__(self, config):
-        super(Net, self).__init__()
+        super(Net_full, self).__init__()
         self.config = config
 
         self.actor_net = ActorNet(config)

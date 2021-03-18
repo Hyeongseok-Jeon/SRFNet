@@ -3,6 +3,58 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+class GAT_SRF(nn.Module):
+    def __init__(self, in_features, out_features, dropout, alpha, training, concat=True):
+        super(GAT_SRF, self).__init__()
+        self.training = training
+        self.dropout = dropout
+        self.in_features = in_features
+        self.out_features = out_features
+        self.alpha = alpha
+        self.concat = concat
+
+        self.W = nn.Parameter(torch.empty(size=(2 * out_features, out_features)))
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        self.a = nn.Parameter(torch.empty(size=(2 * out_features, out_features)))
+        nn.init.xavier_uniform_(self.a.data, gain=1.414)
+
+        self.leakyrelu = nn.LeakyReLU(self.alpha)
+
+    def forward(self, x):
+        h = x[0]
+        adj = x[1]
+        Wh = torch.mm(h, self.W)  # h.shape: (N, in_features), Wh.shape: (N, out_features)
+        a_input = self._prepare_attentional_mechanism_input(adj)
+        e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
+
+        zero_vec = -9e15 * torch.ones_like(e)
+        attention = torch.where(adj > 0, e, zero_vec)
+        attention_raw = F.softmax(attention, dim=1)
+        attention = F.dropout(attention_raw, self.dropout, training=self.training)
+        h_mod = torch.matmul(torch.transpose(attention, 1, 2), Wh)
+        h_prime = torch.diagonal(h_mod, 0, 1, 2)
+
+        if self.concat:
+            return [F.elu(h_prime), attention_raw]
+        else:
+            return [h_prime, attention_raw]
+
+    def _prepare_attentional_mechanism_input(self, Wh):
+        N = Wh.size()[0]  # number of nodes
+
+        Wh_repeated_in_chunks = Wh.repeat_interleave(N, dim=0)
+        Wh_repeated_alternating = Wh.repeat(N, 1)
+
+        all_combinations_matrix = torch.cat([Wh_repeated_in_chunks, Wh_repeated_alternating], dim=1)
+        # all_combinations_matrix.shape == (N * N, 2 * out_features)
+
+        return all_combinations_matrix.view(N, N, 2 * self.out_features)
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+
+
 class GraphAttentionLayer(nn.Module):
     """
     Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
