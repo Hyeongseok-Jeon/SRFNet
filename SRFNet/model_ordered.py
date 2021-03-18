@@ -57,11 +57,11 @@ class model_case_1(nn.Module):
     def __init__(self, config):
         super(model_case_1, self).__init__()
         self.config = config
-        self.actor_net = ActorNet(config).cuda()
-        self.map_net = MapNet(config).cuda()
-        self.fusion_net = FusionNet(config).cuda()
-        self.pred_net = PredNet(config).cuda()
-        self.inter_pred_net = ReactPredNet(config).cuda()
+        self.actor_net = ActorNet(config)
+        self.map_net = MapNet(config)
+        self.fusion_net = FusionNet(config)
+        self.pred_net = PredNet(config)
+        self.inter_pred_net = ReactPredNet(config)
 
     def forward(self, inputs):
         actor_ctrs = inputs[0]
@@ -353,7 +353,7 @@ class FusionNet(nn.Module):
         super(FusionNet, self).__init__()
         self.config = config
         self.seq_len = 20
-        self.GAT_lstm = GAT(config).cuda()
+        self.GAT_lstm = GAT(config)
 
         self.h0 = nn.Parameter(torch.empty(size=(1, config["n_actor"])))
         nn.init.xavier_uniform_(self.h0.data, gain=1.414)
@@ -546,19 +546,19 @@ class GAT(nn.Module):
                              dropout=config['GAT_dropout'],
                              alpha=config['GAT_Leakyrelu_alpha'],
                              training=config['training'],
-                             concat=True).cuda()
+                             concat=True)
         self.input_cell = GAT_SRF(in_features=config['n_actor'] + config['n_map'],
                                   out_features=config['n_actor'],
                                   dropout=config['GAT_dropout'],
                                   alpha=config['GAT_Leakyrelu_alpha'],
                                   training=config['training'],
-                                  concat=True).cuda()
+                                  concat=True)
         self.output = GAT_SRF(in_features=config['n_actor'] + config['n_map'],
                               out_features=config['n_actor'],
                               dropout=config['GAT_dropout'],
                               alpha=config['GAT_Leakyrelu_alpha'],
                               training=config['training'],
-                              concat=True).cuda()
+                              concat=True)
         self.W = nn.Parameter(torch.empty(size=(config["n_actor"], config["n_actor"])))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
         self.b = nn.Parameter(torch.empty(size=(1, config["n_actor"])))
