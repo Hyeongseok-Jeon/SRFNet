@@ -18,7 +18,7 @@ from SRFNet.data_SRF import TrajectoryDataset, batch_form
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
-from SRFNet.model_ordered import model_case_0, model_case_1, Loss_light, PostProcess
+from SRFNet.model_ordered import model_case_0, model_case_1, Loss_light, PostProcess, inter_loss
 from SRFNet.model import Net_min
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
@@ -91,7 +91,7 @@ def main():
         opts = [opt]
         losses = [loss]
     elif args.subcase == 2:
-        loss_delta = torch.nn.L1Loss()
+        loss_delta = inter_loss(config)
         params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
         params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt1 = Optimizer(params1, config)
@@ -99,7 +99,7 @@ def main():
         opts = [opt1, opt2]
         losses = [loss, loss_delta]
     elif args.subcase == 3:
-        loss_delta = torch.nn.L1Loss()
+        loss_delta = inter_loss(config)
         params = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt1 = Optimizer(params, config)
         opts = [opt1]
@@ -222,7 +222,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     out_sur_interact = out[1]
 
                     gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
-                    loss_out2 = losses[1](torch.cat(gt_new,dim=0), torch.cat(out_sur_interact['reg'], dim=0))
+                    loss_out2 = losses[1](out_sur_interact, gt_new, has_preds)
                     loss_out2.backward()
                     lr = opts[1].step(epoch)
 
@@ -241,7 +241,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     update_num += len(data["city"])
                 elif args.subcase == 3:
                     gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
-                    loss_out = losses[0](torch.cat(gt_new,dim=0), torch.cat(out_sur_interact['reg'], dim=0))
+                    loss_out = losses[0](out_sur_interact, gt_new, has_preds)
                     out_added = out_non_interact
                     out_added['reg'] = [out_added['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_added['reg']))]
 

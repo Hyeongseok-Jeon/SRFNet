@@ -53,6 +53,7 @@ class model_case_0(nn.Module):
             )
         return out
 
+
 class model_case_1(nn.Module):
     def __init__(self, config):
         super(model_case_1, self).__init__()
@@ -105,12 +106,13 @@ class model_case_1(nn.Module):
 
         out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
         out_sur_interact = self.get_world_cord(out_sur_interact, rot, [[torch.zeros_like(orig[i][0])] for i in range(len(orig))])
+        for i in range(len(out_sur_interact['reg'])):
+            out_sur_interact['reg'][i] = 3 * out_sur_interact['reg'][i]
 
         out = dict()
         out['cls'] = out_non_interact['cls']
-        out['reg'] = [out_non_interact['reg'][i] + torch.repeat_interleave(3 * out_sur_interact['reg'][i], 6, dim=1) for i in range(len(out_non_interact['reg']))]
+        out['reg'] = [out_non_interact['reg'][i] + torch.repeat_interleave(out_sur_interact['reg'][i], 6, dim=1) for i in range(len(out_non_interact['reg']))]
         return [out_non_interact, out_sur_interact, out]
-
 
     def get_world_cord(self, out, rot, orig):
         for i in range(len(out["reg"])):
@@ -448,7 +450,6 @@ class PredNet(nn.Module):
         return out
 
 
-
 class ReactPredNet(nn.Module):
     """
     Final motion forecasting with Linear Residual block
@@ -479,7 +480,7 @@ class ReactPredNet(nn.Module):
     def forward(self, actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor]) -> Dict[str, List[Tensor]]:
         preds = []
         for i in range(len(self.pred)):
-            preds.append(F.tanh(self.pred[i](actors)))
+            preds.append(self.pred[i](actors))
         reg = torch.cat([x.unsqueeze(1) for x in preds], 1)
         reg = reg.view(reg.size(0), reg.size(1), -1, 2)
 
@@ -760,5 +761,20 @@ def pred_metrics(preds, gt_preds, has_preds):
     return ade1, fde1, ade, fde, min_idcs
 
 
+class inter_loss(nn.Module):
+    def __init__(self, config):
+        super(inter_loss, self).__init__()
+        self.config = config
+        self.pred_loss = torch.nn.L1Loss()
+
+    def forward(self, out, gt, has_preds):
+        for i in range(len(out)):
+            out['reg'][i].squeeze()[~torch.repeat_interleave(has_preds[i].unsqueeze(dim=-1), 2, dim=-1)] = 0
+            for j in range(6):
+                gt[i][:,j,:,:][~torch.repeat_interleave(has_preds[i].unsqueeze(dim=-1), 2, dim=-1)] = 0
+
+        loss = self.pred_loss(torch.cat(out['reg'], dim=0), torch.cat(gt, dim=0))
+
+        return loss
 
 # TODO: need to consider global position of the vehicles in GAT
