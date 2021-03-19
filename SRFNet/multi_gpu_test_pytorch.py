@@ -18,7 +18,7 @@ from SRFNet.data_SRF import TrajectoryDataset, batch_form, collate_fn
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
-from SRFNet.model_ordered import model_case_0, model_case_1, Loss_light, PostProcess, inter_loss
+from SRFNet.model_multi_gpu_test import model_case_0, model_case_1, Loss_light, PostProcess, inter_loss
 from SRFNet.model import Net_min
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
@@ -151,24 +151,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                         epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
             data_sub = data.copy()
-            actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
-            actor_idcs = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
-            actors_hidden = gpu(data['actors_hidden'], gpu_id=config['gpu_id'])
-            nodes = gpu(data['nodes'], gpu_id=config['gpu_id'])
-            graph_idcs = gpu(data['graph_idcs'], gpu_id=config['gpu_id'])
-            ego_feat = gpu(data['ego_feat'], gpu_id=config['gpu_id'])
-            feats = gpu(data['feats'], gpu_id=config['gpu_id'])
-            nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=config['gpu_id'])
-            rot = gpu(data['rot'], gpu_id=config['gpu_id'])
-            orig = gpu(data['orig'], gpu_id=config['gpu_id'])
-            gt_preds = gpu(data['gt_preds'], gpu_id=config['gpu_id'])
-            has_preds = gpu(data['has_preds'], gpu_id=config['gpu_id'])
-            ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=config['gpu_id'])
-            actors = gpu(data['actors'], gpu_id=config['gpu_id'])
-            graph_mod = gpu(data['graph_mod'], gpu_id=config['gpu_id'])
-
-            inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors, data, graph_mod]
-            out = net(inputs)
+            out, gt_preds, has_preds = net(data)
             if args.case == 0 and args.subcase == 1:
                 loss_out = losses[0](out, gt_preds, has_preds)
                 post_out = post_process(out, gt_preds, has_preds)

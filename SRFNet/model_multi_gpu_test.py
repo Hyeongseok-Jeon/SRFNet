@@ -23,12 +23,23 @@ class model_case_0(nn.Module):
         self.actor_net = ActorNet(config)
         self.pred_net = PredNet(config)
 
-    def forward(self, inputs):
-        actor_ctrs = inputs[0]
-        actor_idcs_init = inputs[1]
-        actors = inputs[11]
-        rot = inputs[8]
-        orig = inputs[9]
+    def forward(self, data):
+        data =data.copy()
+        actor_ctrs = gpu(data['actor_ctrs'], gpu_id=self.config['gpu_id'])
+        actor_idcs_init = gpu(data['actor_idcs'], gpu_id=self.config['gpu_id'])
+        actors_hidden = gpu(data['actors_hidden'], gpu_id=self.config['gpu_id'])
+        nodes = gpu(data['nodes'], gpu_id=self.config['gpu_id'])
+        graph_idcs = gpu(data['graph_idcs'], gpu_id=self.config['gpu_id'])
+        ego_feat = gpu(data['ego_feat'], gpu_id=self.config['gpu_id'])
+        feats = gpu(data['feats'], gpu_id=self.config['gpu_id'])
+        nearest_ctrs_hist = gpu(data['nearest_ctrs_hist'], gpu_id=self.config['gpu_id'])
+        rot = gpu(data['rot'], gpu_id=self.config['gpu_id'])
+        orig = gpu(data['orig'], gpu_id=self.config['gpu_id'])
+        gt_preds = gpu(data['gt_preds'], gpu_id=self.config['gpu_id'])
+        has_preds = gpu(data['has_preds'], gpu_id=self.config['gpu_id'])
+        ego_feat_calc = gpu(data['ego_feat_calc'], gpu_id=self.config['gpu_id'])
+        actors = gpu(data['actors'], gpu_id=self.config['gpu_id'])
+        graph_mod = gpu(data['graph_mod'], gpu_id=self.config['gpu_id'])
 
         actor_idcs = []
         veh_calc = 0
@@ -44,7 +55,7 @@ class model_case_0(nn.Module):
         out_non_interact = self.pred_net(actors_cat, actor_idcs, actor_ctrs)
         out_non_interact = self.get_world_cord(out_non_interact, rot, orig)
 
-        return out_non_interact
+        return out_non_interact, gt_preds, has_preds
 
     def get_world_cord(self, out, rot, orig):
         for i in range(len(out["reg"])):
