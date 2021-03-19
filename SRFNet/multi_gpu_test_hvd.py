@@ -14,7 +14,7 @@ sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
 import time
 import torch
 from torch.utils.data import DataLoader
-from SRFNet.data_SRF import TrajectoryDataset, batch_form
+from SRFNet.data_SRF import TrajectoryDataset, batch_form, collate_fn
 from LaneGCN.lanegcn import pred_metrics
 from SRFNet.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
@@ -23,6 +23,7 @@ from SRFNet.model import Net_min
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 import horovod.torch as hvd
+import random
 
 warnings.filterwarnings("ignore")
 
@@ -41,7 +42,8 @@ parser.add_argument("--interaction", type=str, default=None)
 parser.add_argument("--case", type=int, default=0)
 parser.add_argument("--subcase", type=int, default=1)
 args = parser.parse_args()
-
+args.case = 0
+args.subcase = 1
 
 def main():
     config = get_config(root_path, args)
@@ -84,7 +86,9 @@ def main():
         train_loader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=config['batch_size'],
                                                    num_workers=config["workers"],
-                                                   sampler=train_sampler)
+                                                   sampler=train_sampler,
+                                                   collate_fn=collate_fn,
+                                                   pin_memory=True)
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset,
                                                                       num_replicas=hvd.size(),
                                                                       rank=hvd.rank())
@@ -111,11 +115,16 @@ def main():
     loss = Loss_light(config)
 
     if args.subcase == 1:
-        opt = Optimizer(net.parameters(), config)
-        opt.opt = hvd.DistributedOptimizer(opt.opt,
-                                           named_parameters=net.named_parameters())
-        opts = [opt]
-        losses = [loss]
+        if args.multi_gpu:
+            opt = Optimizer(net.parameters(), config)
+            opt.opt = hvd.DistributedOptimizer(opt.opt,
+                                               named_parameters=net.named_parameters())
+            opts = [opt]
+            losses = [loss]
+        else:
+            opt = Optimizer(net.parameters(), config)
+            opts = [opt]
+            losses = [loss]
     elif args.subcase == 2:
         loss_delta = inter_loss(config)
         params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
