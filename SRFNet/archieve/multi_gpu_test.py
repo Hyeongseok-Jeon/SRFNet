@@ -32,15 +32,16 @@ sys.path.insert(0, root_path)
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu_id', type=int, default=0)
 parser.add_argument('--memo', type=str, default='')
-parser.add_argument('--location', type=str, default='home')
+parser.add_argument('--location', type=str, default='server')
 parser.add_argument('--pre', type=bool, default=False)
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
-parser.add_argument("--multi_gpu", type=bool, default=False)
+parser.add_argument("--multi_gpu", type=bool, default=True)
 parser.add_argument("--interaction", type=str, default=None)
-parser.add_argument("--case", type=int, default=None)
-parser.add_argument("--subcase", type=int, default=None)
+parser.add_argument("--case", type=int, default=0)
+parser.add_argument("--subcase", type=int, default=1)
 args = parser.parse_args()
+
 
 def main():
     config = get_config(root_path, args)
@@ -73,15 +74,29 @@ def main():
                                 collate_fn=batch_form,
                                 shuffle=True,
                                 pin_memory=True)
+    if args.multi_gpu:
+        hvd.init()
+        torch.cuda.set_device(hvd.local_rank())
+
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset,
+                                                                        num_replicas=hvd.size(),
+                                                                        rank=hvd.rank())
+        train_loader = torch.utils.data.DataLoader(train_dataset,
+                                                   batch_size=config['batch_size'],
+                                                   num_workers=config["workers"],
+                                                   sampler=train_sampler)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset,
+                                                                      num_replicas=hvd.size(),
+                                                                      rank=hvd.rank())
+        val_loader = torch.utils.data.DataLoader(val_dataset,
+                                                 batch_size=config['batch_size'],
+                                                 num_workers=config["workers"],
+                                                 sampler=val_sampler)
     if args.case == 0:
         net = model_case_0(config)
     elif args.case == 1:
         net = model_case_1(config)
 
-    if args.multi_gpu:
-        hvd.init()
-        torch.cuda.set_device(hvd.local_rank())
-        net = torch.nn.DataParallel(net)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()
@@ -89,13 +104,16 @@ def main():
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
     if args.multi_gpu:
-        net = net.cuda(0)
+        net = net.cuda()
+        hvd.broadcast_parameters(net.state_dict(), root_rank=0)
     else:
         net = net.cuda(config['gpu_id'])
     loss = Loss_light(config)
 
     if args.subcase == 1:
         opt = Optimizer(net.parameters(), config)
+        opt.opt = hvd.DistributedOptimizer(opt.opt,
+                                           named_parameters=net.named_parameters())
         opts = [opt]
         losses = [loss]
     elif args.subcase == 2:
@@ -236,7 +254,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     out_non_interact = out[0]
                     out_sur_interact = out[1]
 
-                    gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
+                    gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1) - out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
                     loss_out2 = losses[1](out_sur_interact, gt_new, has_preds)
                     opts[1].zero_grad()
                     loss_out2.backward()
@@ -257,7 +275,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     loss_inter_tot += loss_out2.item() * len(data["city"])
                     update_num += len(data["city"])
                 elif args.subcase == 3:
-                    gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
+                    gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1) - out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
                     loss_out = losses[0](out_sur_interact, gt_new, has_preds)
                     out_added = out_non_interact
                     out_added['reg'] = [out_added['reg'][i] + out_sur_interact['reg'][i] for i in range(len(out_added['reg']))]
@@ -277,7 +295,6 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     opts[0].zero_grad()
                     loss_out.backward()
                     lr = opts[0].step(epoch)
-
 
         if epoch % val_iters == val_iters - 1:
             if not os.path.exists(config["save_dir"]):
