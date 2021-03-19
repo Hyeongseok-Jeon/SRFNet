@@ -8,7 +8,7 @@ Preprocess the data(csv), build graph from the HDMAP and saved as pkl
 
 import argparse
 import os
-import pickle
+import pickle5 as pickle
 import random
 import sys
 import time
@@ -18,15 +18,12 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
-from utils import Logger, load_pretrain, gpu
+from SRFNet.data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
 
 os.umask(0)
 
-
-root_path = os.path.dirname(os.path.abspath(__file__))
+root_path = os.path.join(os.path.abspath(os.curdir))
 sys.path.insert(0, root_path)
-
 
 parser = argparse.ArgumentParser(
     description="Data preprocess for argo forcasting dataset"
@@ -34,34 +31,66 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "-m", "--model", default="lanegcn", type=str, metavar="MODEL", help="model name"
 )
+parser.add_argument("--mode", default='client')
+parser.add_argument("--port", default=52162)
 
 
 def main():
     # Import all settings for experiment.
     args = parser.parse_args()
-    model = import_module(args.model)
-    print(args.model)
-    config, *_ = model.get_model()
+    config = dict()
 
+    config["preprocess"] = True  # whether use preprocess or not
+    config["preprocess_train"] = os.path.join(
+        root_path,"SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    )
+    config["preprocess_val"] = os.path.join(
+        root_path, "SRFNet","dataset", "preprocess", "val_crs_dist6_angle90.p"
+    )
+    config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test.p')
     config["preprocess"] = False  # we use raw data to generate preprocess data
-    config["val_workers"] = 32
-    config["workers"] = 32
+    config["val_workers"] = 24
+    config["workers"] = 24
     config['cross_dist'] = 6
     config['cross_angle'] = 0.5 * np.pi
+    config["train_split"] = os.path.join(
+        root_path, "LaneGCN","dataset/train/data"
+    )
+    config["val_split"] = os.path.join(root_path, "LaneGCN","dataset/val/data")
+    config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
+    config["batch_size"] = 16
+    config["val_batch_size"] = 16
+    config["rot_aug"] = False
+    config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
+    config["num_scales"] = 6
 
-    os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)    
+    os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)
+
+    # gen('val', config)
+    # gen('test', config)
+    gen('train', config)
 
 
+def gen(mod, config):
+    if mod == 'train':
+        train = True
+        split = config["train_split"]
+        data_num = 205942
+        dir = config["preprocess_train"]
+    elif mod == 'val':
+        train = False
+        split = config["val_split"]
+        data_num = 39472
+        dir = config["preprocess_val"]
+    elif mod == 'test':
+        train = False
+        split = config["test_split"]
+        data_num = 78143
+        dir = config["preprocess_test"]
 
-    val(config)
-    test(config)
-    train(config)
-
-
-def train(config):
     # Data loader for training set
-    dataset = Dataset(config["train_split"], config, train=True)
-    train_loader = DataLoader(
+    dataset = Dataset(split, config, train=train)
+    data_loader = DataLoader(
         dataset,
         batch_size=config["batch_size"],
         num_workers=config["workers"],
@@ -71,9 +100,9 @@ def train(config):
         drop_last=False,
     )
 
-    stores = [None for x in range(205942)]
+    stores = [None for x in range(data_num)]
     t = time.time()
-    for i, data in enumerate(tqdm(train_loader)):
+    for i, data in enumerate(tqdm(data_loader)):
         data = dict(data)
         for j in range(len(data["idx"])):
             store = dict()
@@ -87,6 +116,8 @@ def train(config):
                 "rot",
                 "gt_preds",
                 "has_preds",
+                "file_name",
+                "ego_feats",
                 "graph",
             ]:
                 store[key] = to_numpy(data[key][j])
@@ -97,8 +128,6 @@ def train(config):
         if (i + 1) % 100 == 0:
             print(i, time.time() - t)
             t = time.time()
-
-
 
     dataset = PreprocessDataset(stores, config, train=True)
     data_loader = DataLoader(
@@ -110,108 +139,7 @@ def train(config):
         pin_memory=True,
         drop_last=False)
 
-    modify(config, data_loader,config["preprocess_train"])
-
-
-def val(config):
-    # Data loader for validation set
-    dataset = Dataset(config["val_split"], config, train=False)
-    val_loader = DataLoader(
-        dataset,
-        batch_size=config["val_batch_size"],
-        num_workers=config["val_workers"],
-        shuffle=False,
-        collate_fn=collate_fn,
-        pin_memory=True,
-    )
-    stores = [None for x in range(39472)]
-
-    t = time.time()
-    for i, data in enumerate(tqdm(val_loader)):
-        data = dict(data)
-        for j in range(len(data["idx"])):
-            store = dict()
-            for key in [
-                "idx",
-                "city",
-                "feats",
-                "ctrs",
-                "orig",
-                "theta",
-                "rot",
-                "gt_preds",
-                "has_preds",
-                "graph",
-            ]:
-                store[key] = to_numpy(data[key][j])
-                if key in ["graph"]:
-                    store[key] = to_int16(store[key])
-            stores[store["idx"]] = store
-
-        if (i + 1) % 100 == 0:
-            print(i, time.time() - t)
-            t = time.time()
-
-    dataset = PreprocessDataset(stores, config, train=False)
-    data_loader = DataLoader(
-        dataset,
-        batch_size=config['batch_size'],
-        num_workers=config['workers'],
-        shuffle=False,
-        collate_fn=from_numpy,
-        pin_memory=True,
-        drop_last=False)
-
-    modify(config, data_loader,config["preprocess_val"])
-
-
-def test(config):
-    dataset = Dataset(config["test_split"], config, train=False)
-    test_loader = DataLoader(
-        dataset,
-        batch_size=config["val_batch_size"],
-        num_workers=config["val_workers"],
-        shuffle=False,
-        collate_fn=collate_fn,
-        pin_memory=True,
-    )
-    stores = [None for x in range(78143)]
-
-    t = time.time()
-    for i, data in enumerate(tqdm(test_loader)):
-        data = dict(data)
-        for j in range(len(data["idx"])):
-            store = dict()
-            for key in [
-                "idx",
-                "city",
-                "feats",
-                "ctrs",
-                "orig",
-                "theta",
-                "rot",
-                "graph",
-            ]:
-                store[key] = to_numpy(data[key][j])
-                if key in ["graph"]:
-                    store[key] = to_int16(store[key])
-            stores[store["idx"]] = store
-
-        if (i + 1) % 100 == 0:
-            print(i, time.time() - t)
-            t = time.time()
-
-    dataset = PreprocessDataset(stores, config, train=False)
-    data_loader = DataLoader(
-        dataset,
-        batch_size=config['batch_size'],
-        num_workers=config['workers'],
-        shuffle=False,
-        collate_fn=from_numpy,
-        pin_memory=True,
-        drop_last=False)
-
-    modify(config, data_loader,config["preprocess_test"])
+    modify(config, data_loader, dir)
 
 
 def to_numpy(data):
@@ -269,8 +197,7 @@ class PreprocessDataset():
         self.train = train
 
     def __getitem__(self, idx):
-        from data import from_numpy, ref_copy
-
+        from SRFNet.data import from_numpy, ref_copy
         data = self.split[idx]
         graph = dict()
         for key in ['lane_idcs', 'ctrs', 'pre_pairs', 'suc_pairs', 'left_pairs', 'right_pairs', 'feats']:
@@ -410,6 +337,18 @@ def worker_init_fn(pid):
     random_seed = np.random.randint(2 ** 32 - 1)
     random.seed(random_seed)
 
+def gpu(data):
+    """
+    Transfer tensor in `data` to gpu recursively
+    `data` can be dict, list or tuple
+    """
+    if isinstance(data, list) or isinstance(data, tuple):
+        data = [gpu(x) for x in data]
+    elif isinstance(data, dict):
+        data = {key:gpu(_data) for key,_data in data.items()}
+    elif isinstance(data, torch.Tensor):
+        data = data.contiguous().cuda(non_blocking=True)
+    return data
 
 if __name__ == "__main__":
     main()
