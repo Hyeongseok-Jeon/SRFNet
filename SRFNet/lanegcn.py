@@ -92,24 +92,6 @@ config["cls_ignore"] = 0.2
 ### end of config ###
 
 class Net(nn.Module):
-    """
-    Lane Graph Network contains following components:
-        1. ActorNet: a 1D CNN to process the trajectory input
-        2. MapNet: LaneGraphCNN to learn structured map representations 
-           from vectorized map data
-        3. Actor-Map Fusion Cycle: fuse the information between actor nodes 
-           and lane nodes:
-            a. A2M: introduces real-time traffic information to 
-                lane nodes, such as blockage or usage of the lanes
-            b. M2M:  updates lane node features by propagating the 
-                traffic information over lane graphs
-            c. M2A: fuses updated map features with real-time traffic 
-                information back to actors
-            d. A2A: handles the interaction between actors and produces
-                the output actor features
-        4. PredNet: prediction header for motion forecasting using 
-           feature from A2A
-    """
     def __init__(self, config):
         super(Net, self).__init__()
         self.config = config
