@@ -24,6 +24,7 @@ class model_case_0(nn.Module):
         self.pred_net = PredNet(config)
 
     def forward(self, inputs):
+        inputs = inputs.copy()
         actor_ctrs = inputs[0]
         actor_idcs_init = inputs[1]
         actors = inputs[11]
