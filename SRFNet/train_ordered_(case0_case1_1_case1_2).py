@@ -77,13 +77,19 @@ def main():
         net = model_case_0(config)
     elif args.case == 1:
         net = model_case_1(config)
+
+    if args.multi_gpu:
+        net = torch.nn.DataParallel(net)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = net.state_dict()
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
-    net = net.cuda(config['gpu_id'])
+    if args.multi_gpu:
+        net = net.cuda(0)
+    else:
+        net = net.cuda(config['gpu_id'])
     loss = Loss_light(config)
 
     if args.subcase == 1:
@@ -129,7 +135,6 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
         init_time = time.time()
         time_ref = 0
         for i, data in enumerate(train_loader):
-            net.zero_grad()
             current = (i + 1) * config['batch_size']
             percent = float(current) * 100 / batch_num
             arrow = '-' * int(percent / 100 * 20 - 1) + '>'
@@ -177,6 +182,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                 loss_tot += loss_out["loss"].item() * len(data["city"])
                 update_num += len(data["city"])
 
+                opts[0].zero_grad()
                 loss_out["loss"].backward()
                 lr = opts[0].step(epoch)
             elif args.case == 1:
@@ -197,10 +203,12 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     loss_tot += loss_out["loss"].item() * len(data["city"])
                     update_num += len(data["city"])
 
+                    opts[0].zero_grad()
                     loss_out["loss"].backward()
                     lr = opts[0].step(epoch)
                 elif args.subcase == 2:
                     loss_out1 = losses[0](out_non_interact, gt_preds, has_preds)
+                    opts[0].zero_grad()
                     loss_out1['loss'].backward()
                     lr = opts[0].step(epoch)
                     net.zero_grad()
@@ -228,6 +236,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
 
                     gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
                     loss_out2 = losses[1](out_sur_interact, gt_new, has_preds)
+                    opts[1].zero_grad()
                     loss_out2.backward()
                     lr = opts[1].step(epoch)
 
@@ -263,6 +272,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     loss_tot += loss_out.item() * len(data["city"])
                     update_num += len(data["city"])
 
+                    opts[0].zero_grad()
                     loss_out.backward()
                     lr = opts[0].step(epoch)
 
