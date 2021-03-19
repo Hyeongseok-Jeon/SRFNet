@@ -271,7 +271,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     fde_tot += fde * len(data["city"])
                     loss_tot += loss_out.item() * len(data["city"])
                     update_num += len(data["city"])
-                    
+
                     opts[0].zero_grad()
                     loss_out.backward()
                     lr = opts[0].step(epoch)
