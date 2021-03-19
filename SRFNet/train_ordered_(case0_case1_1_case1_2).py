@@ -125,6 +125,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
         ade_tot = 0
         fde_tot = 0
         loss_tot = 0
+        loss_inter_tot = 0
         init_time = time.time()
         time_ref = 0
         for i, data in enumerate(train_loader):
@@ -136,8 +137,12 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
             if i == 0:
                 sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec' % (epoch + 1, arrow, spaces, percent, time.time() - init_time))
             else:
-                sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
-                    epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+                if args.subcase == 2:
+                    sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss_pred: %f] [loss_inter: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                        epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, loss_inter_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
+                else:
+                    sys.stdout.write('\r' + ' %d th Epoch Progress: [%s%s] %d %%  time: %f sec    [loss: %f] [ade1: %f] [fde1: %f] [ade: %f] [fde: %f]' % (
+                        epoch + 1, arrow, spaces, percent, time.time() - init_time, loss_tot / update_num, ade1_tot / update_num, fde1_tot / update_num, ade_tot / update_num, fde_tot / update_num))
 
             data_sub = data.copy()
             actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
@@ -238,6 +243,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     ade_tot += ade * len(data["city"])
                     fde_tot += fde * len(data["city"])
                     loss_tot += loss_out1["loss"].item() * len(data["city"])
+                    loss_inter_tot += loss_out2.item() * len(data["city"])
                     update_num += len(data["city"])
                 elif args.subcase == 3:
                     gt_new = [(torch.repeat_interleave(gt_preds[i].unsqueeze(dim=1), 6, dim=1)-out_non_interact['reg'][i]).detach() for i in range(len(gt_preds))]
