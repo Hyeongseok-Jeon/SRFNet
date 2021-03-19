@@ -166,7 +166,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
             actors = gpu(data['actors'], gpu_id=config['gpu_id'])
             graph_mod = gpu(data['graph_mod'], gpu_id=config['gpu_id'])
 
-            inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors, graph_mod]
+            inputs = [actor_ctrs, actor_idcs, actors_hidden, nodes, graph_idcs, ego_feat, feats, nearest_ctrs_hist, rot, orig, ego_feat_calc, actors, data, graph_mod]
             out = net(inputs)
             if args.case == 0 and args.subcase == 1:
                 loss_out = losses[0](out, gt_preds, has_preds)
@@ -271,7 +271,7 @@ def train(config, train_loader, net, losses, post_process, opts, val_loader=None
                     fde_tot += fde * len(data["city"])
                     loss_tot += loss_out.item() * len(data["city"])
                     update_num += len(data["city"])
-
+                    
                     opts[0].zero_grad()
                     loss_out.backward()
                     lr = opts[0].step(epoch)
