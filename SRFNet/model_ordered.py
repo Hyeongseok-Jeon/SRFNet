@@ -768,7 +768,7 @@ class inter_loss(nn.Module):
         self.pred_loss = torch.nn.L1Loss()
 
     def forward(self, out, gt, has_preds):
-        for i in range(len(out)):
+        for i in range(len(out['reg'])):
             out['reg'][i].squeeze()[~torch.repeat_interleave(has_preds[i].unsqueeze(dim=-1), 2, dim=-1)] = 0
             for j in range(6):
                 gt[i][:,j,:,:][~torch.repeat_interleave(has_preds[i].unsqueeze(dim=-1), 2, dim=-1)] = 0
