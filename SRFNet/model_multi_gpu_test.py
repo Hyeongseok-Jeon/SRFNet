@@ -25,8 +25,8 @@ class model_case_0(nn.Module):
 
     def forward(self, data):
         data =data.copy()
-        actor_ctrs = gpu(data['actor_ctrs'], gpu_id=self.config['gpu_id'])
-        actor_idcs_init = gpu(data['actor_idcs'], gpu_id=self.config['gpu_id'])
+        actor_ctrs = gpu(data['actor_ctrs'], gpu_id=config['gpu_id'])
+        actor_idcs_init = gpu(data['actor_idcs'], gpu_id=config['gpu_id'])
         actors_hidden = gpu(data['actors_hidden'], gpu_id=self.config['gpu_id'])
         nodes = gpu(data['nodes'], gpu_id=self.config['gpu_id'])
         graph_idcs = gpu(data['graph_idcs'], gpu_id=self.config['gpu_id'])
