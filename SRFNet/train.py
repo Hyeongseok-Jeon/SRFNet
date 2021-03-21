@@ -27,6 +27,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import Sampler, DataLoader
 import horovod.torch as hvd
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
 
 from torch.utils.data.distributed import DistributedSampler
@@ -71,10 +72,19 @@ def main():
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
 
+    pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
+    pretrained_dict = pre_trained_weight['state_dict']
+    new_model_dict = net.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+    new_model_dict.update(pretrained_dict)
+    net.load_state_dict(new_model_dict)
+
+
     if config["horovod"]:
-        opt.opt = hvd.DistributedOptimizer(
-            opt.opt, named_parameters=net.named_parameters()
-        )
+        for i in range(len(opt)):
+            opt[i].opt = hvd.DistributedOptimizer(
+                opt[i].opt, named_parameters=net.named_parameters()
+            )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -151,7 +161,9 @@ def main():
     )
 
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
+    if config["horovod"]:
+        for i in range(len(opt)):
+            hvd.broadcast_optimizer_state(opt[i].opt, root_rank=0)
 
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
@@ -180,18 +192,34 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
     start_time = time.time()
     metrics = dict()
-    for i, data in tqdm(enumerate(train_loader),disable=hvd.rank()):
+    for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
+        data_copy = []
+        for j in range(len(opt)):
+            data_copy.append(data)
+        outputs = []
+        losses = []
+        for j in range(len(opt)):
+            output = net(data_copy[j])
+            outputs.append(output[j])
+            if j == 1:
+                loss_out = loss[j](output[j], data_copy[j], losses[0])
+            else:
+                loss_out = loss[j](output[j], data_copy[j])
+            losses.append(loss_out)
+            opt[j].zero_grad()
+            loss_out["loss"].backward()
+            lr = opt[j].step(epoch)
+            if j == 0 and len(opt)>1:
+                gt_new = [(gpu(torch.repeat_interleave(data_copy[j]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output[j]['reg'][i]).detach() for i in range(len(data_copy[j]['gt_preds']))]
+                data_copy[j+1]['gt_new'] = gt_new
 
-        output = net(data)
-        loss_out = loss(output, data)
-        post_out = post_process(output, data)
-        post_process.append(metrics, loss_out, post_out)
-
-        opt.zero_grad()
-        loss_out["loss"].backward()
-        lr = opt.step(epoch)
+        out_added = outputs[0]
+        if len(opt) > 1:
+            out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+        post_out = post_process(out_added, data)
+        post_process.append(metrics, losses, post_out)
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
@@ -222,11 +250,26 @@ def val(config, data_loader, net, loss, post_process, epoch):
     metrics = dict()
     for i, data in enumerate(data_loader):
         data = dict(data)
+        data_copy = []
+        for j in range(len(loss)):
+            data_copy.append(data)
+        outputs = []
+        losses = []
         with torch.no_grad():
-            output = net(data)
-            loss_out = loss(output, data)
-            post_out = post_process(output, data)
-            post_process.append(metrics, loss_out, post_out)
+            for j in range(len(loss)):
+                output = net(data_copy[j])
+                outputs.append(output[j])
+                if j == 1:
+                    loss_out = loss[j](output[j], data_copy[j], losses[0])
+                else:
+                    loss_out = loss[j](output[j], data_copy[j])
+                losses.append(loss_out)
+
+            out_added = outputs[0]
+            if len(loss) > 1:
+                out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+            post_out = post_process(out_added, data)
+            post_process.append(metrics, losses, post_out)
 
     dt = time.time() - start_time
     metrics = sync(metrics)
@@ -244,11 +287,16 @@ def save_ckpt(net, opt, save_dir, epoch):
         state_dict[key] = state_dict[key].cpu()
 
     save_name = "%3.3f.ckpt" % epoch
-    torch.save(
-        {"epoch": epoch, "state_dict": state_dict, "opt_state": opt.opt.state_dict()},
-        os.path.join(save_dir, save_name),
-    )
-
+    if len(opt) == 1:
+        torch.save(
+            {"epoch": epoch, "state_dict": state_dict, "opt_state": opt[0].opt.state_dict()},
+            os.path.join(save_dir, save_name),
+        )
+    elif len(opt) == 2:
+        torch.save(
+            {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
+            os.path.join(save_dir, save_name),
+        )
 
 def sync(data):
     data_list = comm.allgather(data)
