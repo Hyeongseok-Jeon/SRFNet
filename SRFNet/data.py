@@ -61,13 +61,13 @@ class ArgoDataset(Dataset):
                 graph['ctrs'] = np.matmul(data['graph']['ctrs'], rot)
                 graph['feats'] = np.matmul(data['graph']['feats'], rot)
                 new_data['graph'] = graph
-                data = new_data
+                data = get_ctrs_idx(new_data)
             else:
                 new_data = dict()
                 for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ctrs', 'graph']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
-                data = new_data
+                data = get_ctrs_idx(new_data)
            
             if 'raster' in self.config and self.config['raster']:
                 data.pop('graph')
@@ -356,6 +356,20 @@ class ArgoDataset(Dataset):
                 graph[key] += dilated_nbrs(graph[key][0], graph['num_nodes'], self.config['num_scales'])
         return graph
 
+def get_ctrs_idx(data):
+    ctrs_list = data['graph']['ctrs']
+    nearest_ctrs_hist = np.zeros_like(data['feats'])[:, :, 0]
+    traj = np.zeros_like(data['feats'])[:, :, :2]
+    traj[:, -1, :] = data['ctrs']
+    for i in range(19):
+        traj[:,-2-i, :] = traj[:, -i-1,:] - data['feats'][:, -i - 1,:2]
+    for i in range(20):
+        for j in range(traj.shape[0]):
+            ref_pos = traj[j,i,:]
+            nearest_ctrs_hist[j,i] = np.argmin(np.linalg.norm(ctrs_list - ref_pos, axis=1))
+
+    data['nearest_ctrs_hist'] = nearest_ctrs_hist
+    return data
 
 class ArgoTestDataset(ArgoDataset):
     def __init__(self, split, config, train=False):

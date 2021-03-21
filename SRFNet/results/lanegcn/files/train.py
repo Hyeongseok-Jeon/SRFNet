@@ -1,8 +1,14 @@
 # Copyright (c) 2020 Uber Technologies, Inc.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import sys
 import os
+sys.path.extend(['/home/jhs/Desktop/SRFNet'])
+sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
+sys.path.extend(['/home/user/Desktop/SRFNet'])
+sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
+sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
+sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
 
 os.umask(0)
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -25,7 +31,7 @@ import horovod.torch as hvd
 
 from torch.utils.data.distributed import DistributedSampler
 
-from utils import Logger, load_pretrain
+from SRFNet.utils import Logger, load_pretrain
 
 from mpi4py import MPI
 
@@ -49,7 +55,9 @@ parser.add_argument(
 parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
-
+parser.add_argument(
+    "--case", default="case_1_1", type=str
+)
 
 def main():
     seed = hvd.rank()
@@ -61,7 +69,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model()
+    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
 
     if config["horovod"]:
         opt.opt = hvd.DistributedOptimizer(
