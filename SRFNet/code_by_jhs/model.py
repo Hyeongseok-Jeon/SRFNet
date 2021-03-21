@@ -12,7 +12,7 @@ from LaneGCN.utils import gpu, to_long, Optimizer, StepLR, cpu
 from numpy import ndarray
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
-from SRFNet.layer import GraphAttentionLayer, GraphAttentionLayer_time_serial
+from SRFNet.code_by_jhs.layer import GraphAttentionLayer, GraphAttentionLayer_time_serial
 import time
 
 

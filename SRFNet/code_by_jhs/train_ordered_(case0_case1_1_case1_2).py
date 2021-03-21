@@ -14,12 +14,12 @@ sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
 import time
 import torch
 from torch.utils.data import DataLoader
-from SRFNet.data_SRF import TrajectoryDataset, batch_form
+from SRFNet.code_by_jhs.data_SRF import TrajectoryDataset, batch_form
 from LaneGCN.lanegcn import pred_metrics
-from SRFNet.config import get_config
+from SRFNet.code_by_jhs.config import get_config
 from LaneGCN.utils import Optimizer, gpu, cpu
-from SRFNet.model_ordered import model_case_0, model_case_1, Loss_light, PostProcess, inter_loss
-from SRFNet.model import Net_min
+from SRFNet.code_by_jhs.model_ordered import model_case_0, model_case_1, Loss_light, PostProcess, inter_loss
+from SRFNet.code_by_jhs.model import Net_min
 import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 import horovod.torch as hvd
