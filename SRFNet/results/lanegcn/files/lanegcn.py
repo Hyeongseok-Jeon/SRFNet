@@ -45,8 +45,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 8
+config["val_batch_size"] = 8
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -114,10 +114,17 @@ class lanegcn(nn.Module):
         # construct actor feature
         actors, actor_idcs = actor_gather(gpu(data["feats"]))
         actor_ctrs = gpu(data["ctrs"])
+        '''
+        actors : N x 3 x 20 (N : number of vehicles in every batches)
+        '''
+
         actors = self.actor_net(actors)
 
         # construct map features
         graph = graph_gather(to_long(gpu(data["graph"])))
+        '''
+        graph['idcs'] : list with length or batch size, graph['idcs'][i]
+        '''
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # actor-map fusion cycle 
@@ -127,6 +134,9 @@ class lanegcn(nn.Module):
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
 
         # prediction
+        '''
+        actors : N x 128 (N : number of vehicles in every batches)
+        '''
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
         rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
@@ -167,19 +177,21 @@ class case_2_1(nn.Module):
         super(case_2_1, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
 
-        self.fusion_net = FusionNet(config)
-        self.inter_pred_net = ReactPredNet(config)
+        self.fusion_net = FusionNet(config).cuda()
+        self.inter_pred_net = ReactPredNet(config).cuda()
 
-        self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(data["feats"]))
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
         actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
+        actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
+        actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
         graph = graph_gather(to_long(gpu(data["graph"])))
@@ -193,10 +205,24 @@ class case_2_1(nn.Module):
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i] + np.sum(np.asarray([len(node_idcs[j]) for j in range(i)]))
         nearest_ctrs_cat = torch.cat(nearest_ctrs_hist, dim=0)
 
-        actors_inter_cat = [torch.cat(actors[i], dim=0) for i in range(len(actors))]
-        graph_adjs = torch.cat([nodes[nearest_ctrs_cat[i].long()].unsqueeze(dim=0) for i in range(actors_inter_cat.shape[0])], dim=0)
+        '''
+        actors : N x 128 (N : number of vehicles in every batches)
+        '''
+        graph_adjs = []
+        for i in range(5):
+            if i == 0:
+                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
+            else:
+                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
+        graph_adjs = torch.cat(graph_adjs,dim=1)
 
         # actor-map fusion cycle
+        '''
+        actors_inter_cat : N x 5 x 128 (N : number of vehicles in every batches)
+        graph_adjs : N x 5 x 128 (N : number of vehicles in every batches) [node feature of the nearest node]
+        '''
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
@@ -229,13 +255,25 @@ def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
     actors = [x.transpose(1, 2) for x in actors]
     actors = torch.cat(actors, 0)
 
+    mask = torch.zeros_like(actors)
+    actors_inter_cat = []
+    for i in range(5):
+        if i == 0:
+            element = mask.clone()
+            element[:, :, -1] = actors[:, :, 0]
+            actors_inter_cat.append(element)
+        else:
+            element = mask.clone()
+            element[:, :, -5 * i:] = actors[:, :, :5 * i]
+            actors_inter_cat.append(element)
+
     actor_idcs = []
     count = 0
     for i in range(batch_size):
         idcs = torch.arange(count, count + num_actors[i]).to(actors.device)
         actor_idcs.append(idcs)
         count += num_actors[i]
-    return actors, actor_idcs
+    return actors, actor_idcs, actors_inter_cat
 
 
 def graph_gather(graphs):
@@ -464,11 +502,7 @@ class FusionNet(nn.Module):
         h0 = torch.repeat_interleave(self.h0, actors_inter_cat.shape[0], dim=0)
         out = []
         for i in range(int(4)):
-            if i == 0:
-                out_tmp, [c0, h0] = self.GAT_lstm(actors_inter_cat[:, 5 * (i + 1) - 1, :], graph_adjs[:, 0, :], [c0, h0])
-            else:
-                out_tmp, [c0, h0] = self.GAT_lstm(actors_inter_cat[:, 5 * (i + 1) - 1, :], graph_adjs[:, 5 * i - 1, :], [c0, h0])
-
+            out_tmp, [c0, h0] = self.GAT_lstm(actors_inter_cat[:, i+1, :], graph_adjs[:, i, :], [c0, h0])
             out.append(F.sigmoid(out_tmp))
         out = torch.cat([out[i].unsqueeze(dim=2) for i in range(len(out))], dim=2)
         out = self.conv1d(out).squeeze()

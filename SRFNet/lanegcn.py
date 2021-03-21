@@ -12,10 +12,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from SRFNet.data import ArgoDataset, collate_fn
-from SRFNet.utils import gpu, to_long, Optimizer, StepLR
+from data import ArgoDataset, collate_fn
+from utils import gpu, to_long, Optimizer, StepLR
 
-from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -61,7 +61,7 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
     root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
@@ -208,24 +208,20 @@ class case_2_1(nn.Module):
         '''
         actors : N x 128 (N : number of vehicles in every batches)
         '''
-        mask = torch.zeros_like(nearest_ctrs_cat)
         graph_adjs = []
         for i in range(5):
             if i == 0:
-                element = nodes[nearest_ctrs_cat[:,i].long()].unsqueeze(dim=0)
+                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
                 graph_adjs.append(element)
             else:
-                element = mask.clone()
-                element[:, :, -5 * i:] = actors[:, :, :5 * i]
-                [nodes[nearest_ctrs_cat[i].long()].unsqueeze(dim=0) for i in range(actors.shape[0])]
+                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
                 graph_adjs.append(element)
-
-        graph_adjs = torch.cat([nodes[nearest_ctrs_cat[i].long()].unsqueeze(dim=0) for i in range(actors.shape[0])], dim=0)
+        graph_adjs = torch.cat(graph_adjs,dim=1)
 
         # actor-map fusion cycle
         '''
-        actors_inter_cat : N x 20 x 128 (N : number of vehicles in every batches)
-        graph_adjs : N x 20 x 128 (N : number of vehicles in every batches) [node feature of the nearest node]
+        actors_inter_cat : N x 5 x 128 (N : number of vehicles in every batches)
+        graph_adjs : N x 5 x 128 (N : number of vehicles in every batches) [node feature of the nearest node]
         '''
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
@@ -506,11 +502,7 @@ class FusionNet(nn.Module):
         h0 = torch.repeat_interleave(self.h0, actors_inter_cat.shape[0], dim=0)
         out = []
         for i in range(int(4)):
-            if i == 0:
-                out_tmp, [c0, h0] = self.GAT_lstm(actors_inter_cat[:, 5 * (i + 1) - 1, :], graph_adjs[:, 0, :], [c0, h0])
-            else:
-                out_tmp, [c0, h0] = self.GAT_lstm(actors_inter_cat[:, 5 * (i + 1) - 1, :], graph_adjs[:, 5 * i - 1, :], [c0, h0])
-
+            out_tmp, [c0, h0] = self.GAT_lstm(actors_inter_cat[:, i+1, :], graph_adjs[:, i, :], [c0, h0])
             out.append(F.sigmoid(out_tmp))
         out = torch.cat([out[i].unsqueeze(dim=2) for i in range(len(out))], dim=2)
         out = self.conv1d(out).squeeze()
