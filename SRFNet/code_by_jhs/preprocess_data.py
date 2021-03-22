@@ -18,7 +18,7 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from SRFNet.code_by_jhs.data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
+from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
 
 os.umask(0)
 
