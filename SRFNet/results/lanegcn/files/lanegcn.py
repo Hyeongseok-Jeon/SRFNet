@@ -96,7 +96,7 @@ config["SRF_conv_num"] = 4
 ### end of config ###
 
 class lanegcn(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config):
         super(lanegcn, self).__init__()
         self.config = config
 
@@ -107,8 +107,8 @@ class lanegcn(nn.Module):
         self.m2m = M2M(config)
         self.m2a = M2A(config)
         self.a2a = A2A(config)
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+
+        self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -148,14 +148,12 @@ class lanegcn(nn.Module):
 
 
 class case_1_1(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config):
         super(case_1_1, self).__init__()
         self.config = config
 
         self.actor_net = ActorNet(config)
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
-
+        self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -175,18 +173,17 @@ class case_1_1(nn.Module):
 
 
 class case_2_1(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config):
         super(case_2_1, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
 
-        self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.fusion_net = FusionNet(config).cuda()
+        self.inter_pred_net = PredNet(config).cuda()
 
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -252,18 +249,17 @@ class case_2_1(nn.Module):
 
 
 class case_2_2(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config):
         super(case_2_2, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
 
-        self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.fusion_net = FusionNet(config).cuda()
+        self.inter_pred_net = PredNet(config).cuda()
 
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -326,18 +322,17 @@ class case_2_2(nn.Module):
 
 
 class case_2_3(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config):
         super(case_2_3, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
 
-        self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.fusion_net = FusionNet(config).cuda()
+        self.inter_pred_net = PredNet(config).cuda()
 
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -1309,29 +1304,30 @@ def pred_metrics(preds, gt_preds, has_preds):
 
 def get_model(args):
     if args.case == 'case_1_1':
-        net = case_1_1(config, args)
+        net = case_1_1(config)
         params = net.parameters()
         opt = [Optimizer(params, config)]
         loss = [Loss(config).cuda()]
     elif args.case == 'case_2_1':
-        net = case_2_1(config, args)
+        net = case_2_1(config)
         params = net.parameters()
         opt = [Optimizer(params, config)]
         loss = [Loss(config).cuda()]
     elif args.case == 'case_2_2':
-        net = case_2_2(config, args)
+        net = case_2_2(config)
         params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
         params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
     elif args.case == 'case_2_3':
-        net = case_2_3(config, args)
+        net = case_2_3(config)
+        params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
         params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt = [None, Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
     else:
         print('model is not specified. therefore the lanegcn is loaded')
-        net = lanegcn(config, args)
+        net = lanegcn(config)
         params = net.parameters()
         opt = [Optimizer(params, config)]
         loss = [Loss(config).cuda()]

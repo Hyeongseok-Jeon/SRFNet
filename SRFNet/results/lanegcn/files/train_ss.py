@@ -59,9 +59,6 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="case_1_1", type=str
 )
-parser.add_argument(
-    "--header", default="lanegcn", type=str
-)
 
 def main():
     seed = hvd.rank()
@@ -320,5 +317,6 @@ def sync(data):
 if __name__ == "__main__":
     main()
 
+# TODO: case_2_3
 # TODO: modify prediction head : classify and regression
 # TODO: GAN wrapper (with vanila GAN, conditional GAN, info GAN)
