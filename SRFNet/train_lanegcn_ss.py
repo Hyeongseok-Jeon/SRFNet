@@ -59,9 +59,7 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="case_1_1", type=str
 )
-parser.add_argument(
-    "--header", default="lanegcn", type=str
-)
+
 
 def main():
     seed = hvd.rank()

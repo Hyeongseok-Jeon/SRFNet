@@ -107,8 +107,7 @@ class lanegcn(nn.Module):
         self.m2m = M2M(config)
         self.m2a = M2A(config)
         self.a2a = A2A(config)
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -153,8 +152,7 @@ class case_1_1(nn.Module):
         self.config = config
 
         self.actor_net = ActorNet(config)
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config)
 
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
@@ -185,8 +183,7 @@ class case_2_1(nn.Module):
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
 
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -262,8 +259,7 @@ class case_2_2(nn.Module):
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
 
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -336,8 +332,7 @@ class case_2_3(nn.Module):
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
 
-        if args.header == 'lanegcn':
-            self.pred_net = PredNet(config)
+        self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
