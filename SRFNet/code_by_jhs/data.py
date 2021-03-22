@@ -430,6 +430,7 @@ class ArgoDataset(Dataset):
 
     def get_cl_cands(self, data):
         cl_cands = []
+        print(data['feats'].shape)
         for i in range(len(data['feats'])):
             hist_feats = data['feats'][i]
             hist_traj_tmp = np.zeros((hist_feats.shape[0], 20, 2))
