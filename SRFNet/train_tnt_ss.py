@@ -3,6 +3,7 @@
 # limitations under the License.
 import sys
 import os
+
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/Desktop/SRFNet'])
@@ -22,20 +23,19 @@ import time
 import shutil
 from importlib import import_module
 from numbers import Number
-
+from shapely.geometry import LineString, Point
 from tqdm import tqdm
 import torch
 from torch.utils.data import Sampler, DataLoader
 import horovod.torch as hvd
 from SRFNet.utils import gpu, to_long, Optimizer, StepLR
-
+from argoverse.map_representation.map_api import ArgoverseMap
 
 from torch.utils.data.distributed import DistributedSampler
 
 from SRFNet.utils import Logger, load_pretrain
-
+import math
 from mpi4py import MPI
-
 
 comm = MPI.COMM_WORLD
 hvd.init()
@@ -43,7 +43,6 @@ torch.cuda.set_device(hvd.local_rank())
 
 root_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, root_path)
-
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
@@ -59,6 +58,7 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="case_1_1", type=str
 )
+am = ArgoverseMap()
 
 
 def main():
@@ -79,7 +79,6 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
-
 
     if config["horovod"]:
         for i in range(len(opt)):
@@ -215,9 +214,9 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
                 opt[j].zero_grad()
                 loss_out["loss"].backward()
                 lr = opt[j].step(epoch)
-            if j == 0 and len(opt)>1:
+            if j == 0 and len(opt) > 1:
                 gt_new = [(gpu(torch.repeat_interleave(data_copy[j]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output[j]['reg'][i]).detach() for i in range(len(data_copy[j]['gt_preds']))]
-                data_copy[j+1]['gt_new'] = gt_new
+                data_copy[j + 1]['gt_new'] = gt_new
 
         out_added = outputs[0]
         if len(opt) > 1:
@@ -227,7 +226,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
-            num_iters % save_iters == 0 or epoch >= config["num_epochs"]
+                num_iters % save_iters == 0 or epoch >= config["num_epochs"]
         ):
             save_ckpt(net, opt, config["save_dir"], epoch)
 
@@ -301,6 +300,7 @@ def save_ckpt(net, opt, save_dir, epoch):
             {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
             os.path.join(save_dir, save_name),
         )
+
 
 def sync(data):
     data_list = comm.allgather(data)

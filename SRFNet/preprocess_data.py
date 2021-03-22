@@ -23,10 +23,8 @@ from utils import Logger, load_pretrain, gpu
 
 os.umask(0)
 
-
 root_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, root_path)
-
 
 parser = argparse.ArgumentParser(
     description="Data preprocess for argo forcasting dataset"
@@ -44,14 +42,12 @@ def main():
     config, *_ = model.get_model()
 
     config["preprocess"] = False  # we use raw data to generate preprocess data
-    config["val_workers"] = 32
-    config["workers"] = 32
+    config["val_workers"] = 64
+    config["workers"] = 64
     config['cross_dist'] = 6
     config['cross_angle'] = 0.5 * np.pi
 
-    os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)    
-
-
+    os.makedirs(os.path.dirname(config['preprocess_train']), exist_ok=True)
 
     val(config)
     test(config)
@@ -98,8 +94,6 @@ def train(config):
             print(i, time.time() - t)
             t = time.time()
 
-
-
     dataset = PreprocessDataset(stores, config, train=True)
     data_loader = DataLoader(
         dataset,
@@ -110,7 +104,7 @@ def train(config):
         pin_memory=True,
         drop_last=False)
 
-    modify(config, data_loader,config["preprocess_train"])
+    modify(config, data_loader, config["preprocess_train"])
 
 
 def val(config):
@@ -162,7 +156,7 @@ def val(config):
         pin_memory=True,
         drop_last=False)
 
-    modify(config, data_loader,config["preprocess_val"])
+    modify(config, data_loader, config["preprocess_val"])
 
 
 def test(config):
@@ -211,7 +205,7 @@ def test(config):
         pin_memory=True,
         drop_last=False)
 
-    modify(config, data_loader,config["preprocess_test"])
+    modify(config, data_loader, config["preprocess_test"])
 
 
 def to_numpy(data):
@@ -238,7 +232,6 @@ def to_int16(data):
     return data
 
 
-
 def modify(config, data_loader, save):
     t = time.time()
     store = data_loader.dataset.split
@@ -262,6 +255,7 @@ def modify(config, data_loader, save):
     pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)
     f.close()
 
+
 class PreprocessDataset():
     def __init__(self, split, config, train=True):
         self.split = split
@@ -280,8 +274,6 @@ class PreprocessDataset():
 
     def __len__(self):
         return len(self.split)
-
-
 
 
 def preprocess(graph, cross_dist, cross_angle=None):
@@ -390,7 +382,6 @@ def preprocess(graph, cross_dist, cross_angle=None):
     out['right'] = right
     out['idx'] = graph['idx']
     return out
-
 
 
 def to_long(data):

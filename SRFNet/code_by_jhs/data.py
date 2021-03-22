@@ -9,7 +9,7 @@ import copy
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from skimage.transform import rotate
-
+import math
 
 class ArgoDataset(Dataset):
     def __init__(self, split, config, train=True):
@@ -103,6 +103,7 @@ class ArgoDataset(Dataset):
             return data
 
         data['graph'] = self.get_lane_graph(data)
+        data['cl_cands'] = self.get_cl_cands(data)
         return data
 
     def __len__(self):
@@ -398,6 +399,116 @@ class ArgoDataset(Dataset):
 
         data['nearest_ctrs_hist'] = nearest_ctrs_hist
         return data
+
+    def get_cl_cands_gt(self, data):
+        cl_cands = []
+        for i in range(len(data['feats'])):
+            hist_feats = data['feats'][i]
+            hist_traj_tmp = np.zeros((hist_feats.shape[0], 20, 2))
+            for j in range(19, -1, -1):
+                if j == 19:
+                    hist_traj_tmp[:, j, :] = data['ctrs'][i]
+                else:
+                    hist_traj_tmp[:, j, :] = hist_traj_tmp[:, j + 1, :] - hist_feats[:, j + 1, :2]
+            hist_traj_tmp = np.transpose(np.matmul(np.linalg.inv(data['rot'][i]), np.transpose(hist_traj_tmp, (0, 2, 1))), (0, 2, 1))
+            hist_traj_tmp = hist_traj_tmp + data['orig'][i]
+            traj = np.concatenate((hist_traj_tmp, data['gt_preds']), axis=1)
+            cl_batch = []
+            for j in range(hist_feats.shape[0]):
+                cl_list_mod = []
+                moving_dist = np.linalg.norm(np.sum(hist_feats[j], axis=0)[:2])
+                if moving_dist > 1.5 or j == 1:
+                    [cl_list, seg_list] = self.am.get_candidate_centerlines_for_traj(traj[j], data['city'][i], viz=False)
+                    for k in range(len(cl_list)):
+                        init_idx = np.argmin(np.linalg.norm(cl_list[k] - traj[j][:1, :], axis=1))
+                        cl_sparse = self.sparse_wp(cl_list[k][init_idx:, :])
+                        cl_list_mod.append(cl_sparse)
+                cl_batch.append(cl_list_mod)
+            cl_cands.append(cl_batch)
+        return cl_cands
+
+
+    def get_cl_cands(self, data):
+        cl_cands = []
+        for i in range(len(data['feats'])):
+            hist_feats = data['feats'][i]
+            hist_traj_tmp = np.zeros((hist_feats.shape[0], 20, 2))
+            for j in range(19, -1, -1):
+                if j == 19:
+                    hist_traj_tmp[:, j, :] = data['ctrs'][i]
+                else:
+                    hist_traj_tmp[:, j, :] = hist_traj_tmp[:, j + 1, :] - hist_feats[:, j + 1, :2]
+            hist_traj_tmp = np.transpose(np.matmul(np.linalg.inv(data['rot'][i]), np.transpose(hist_traj_tmp, (0, 2, 1))), (0, 2, 1))
+            hist_traj_tmp = hist_traj_tmp + data['orig'][i]
+            cl_batch = []
+            for j in range(hist_feats.shape[0]):
+                cl_list_mod = []
+                moving_dist = np.linalg.norm(np.sum(hist_feats[j], axis=0)[:2])
+                if moving_dist > 1.5 or j == 1:
+                    [cl_list, seg_list] = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'][i], viz=False)
+                    for k in range(len(cl_list)):
+                        init_idx = np.argmin(np.linalg.norm(cl_list[k] - hist_traj_tmp[j][:1, :], axis=1))
+                        cl_sparse = self.sparse_wp(cl_list[k][init_idx:, :])
+                        cl_list_mod.append(cl_sparse)
+                cl_batch.append(cl_list_mod)
+            cl_cands.append(cl_batch)
+        return cl_cands
+
+    def sparse_wp(self, cl):
+        val_index = np.unique(cl[:, 0:1], return_index=True)[1]
+        cl = np.concatenate([np.expand_dims(cl[sorted(val_index), 0:1], 1), np.expand_dims(cl[sorted(val_index), 1:2], 1)], axis=1)
+        cl_mod = []
+        dist = []
+        i = 0
+        while i < cl.shape[0]:
+            if i == 0:
+                cl_mod.append(cl[0, :])
+                i += 1
+            else:
+                dist.append(np.linalg.norm(cl[i, :] - cl_mod[-1]))
+                if dist[-1] > 2:
+                    while dist[-1] > 2:
+                        cl_mod.append(np.asarray(self.circle_line_intersection(cl[i, :], cl[i - 1, :], cl_mod[-1])))
+                        dist.append(np.linalg.norm(cl[i, :] - cl_mod[-1]))
+                else:
+                    i += 1
+        cl_mod = np.asarray(cl_mod)[:,:,0]
+        return cl_mod
+
+
+    def circle_line_intersection(self, p2, p1, center):
+        if p2[1] > p1[1]:
+            y2 = p2[1] - center[1]
+            y1 = p1[1] - center[1]
+            x2 = p2[0] - center[0]
+            x1 = p1[0] - center[0]
+        else:
+            y2 = p1[1] - center[1]
+            y1 = p2[1] - center[1]
+            x2 = p1[0] - center[0]
+            x1 = p2[0] - center[0]
+
+        dx = x2-x1
+        dy = y2-y1
+        dr = np.sqrt(dx**2 + dy**2)
+        D = x1*y2-x2*y1
+        cand1 = [(D*dy + dx * np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[0], (-D*dx+dy*np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[1]]
+        cand2 = [(D*dy - dx * np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[0], (-D*dx-dy*np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[1]]
+
+        if min(p2[0], p1[0]) <= cand1[0] <= max(p2[0], p1[0]):
+            if min(p2[0], p1[0]) <= cand2[0] <= max(p2[0], p1[0]):
+                min_idx = np.argmin([np.linalg.norm(p2 - cand1),np.linalg.norm(p2 - cand2)])
+                if min_idx == 0:
+                    point = cand1
+                elif min_idx == 1:
+                    point = cand2
+            else:
+                point = cand1
+        elif min(p2[0], p1[0]) <= cand2[0] <= max(p2[0], p1[0]):
+            point = cand2
+        else:
+            point = None
+        return point
 
 
 class ArgoTestDataset(ArgoDataset):
