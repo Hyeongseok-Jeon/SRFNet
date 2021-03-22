@@ -431,28 +431,25 @@ class ArgoDataset(Dataset):
     def get_cl_cands(self, data):
         cl_cands = []
         print(data['feats'].shape)
-        for i in range(len(data['feats'])):
-            hist_feats = data['feats'][i]
-            hist_traj_tmp = np.zeros((hist_feats.shape[0], 20, 2))
-            for j in range(19, -1, -1):
-                if j == 19:
-                    hist_traj_tmp[:, j, :] = data['ctrs'][i]
-                else:
-                    hist_traj_tmp[:, j, :] = hist_traj_tmp[:, j + 1, :] - hist_feats[:, j + 1, :2]
-            hist_traj_tmp = np.transpose(np.matmul(np.linalg.inv(data['rot'][i]), np.transpose(hist_traj_tmp, (0, 2, 1))), (0, 2, 1))
-            hist_traj_tmp = hist_traj_tmp + data['orig'][i]
-            cl_batch = []
-            for j in range(hist_feats.shape[0]):
-                cl_list_mod = []
-                moving_dist = np.linalg.norm(np.sum(hist_feats[j], axis=0)[:2])
-                if moving_dist > 1.5 or j == 1:
-                    [cl_list, seg_list] = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'][i], viz=False)
-                    for k in range(len(cl_list)):
-                        init_idx = np.argmin(np.linalg.norm(cl_list[k] - hist_traj_tmp[j][:1, :], axis=1))
-                        cl_sparse = self.sparse_wp(cl_list[k][init_idx:, :])
-                        cl_list_mod.append(cl_sparse)
-                cl_batch.append(cl_list_mod)
-            cl_cands.append(cl_batch)
+        hist_feats = data['feats']
+        hist_traj_tmp = np.zeros((hist_feats.shape[0], 20, 2))
+        for j in range(19, -1, -1):
+            if j == 19:
+                hist_traj_tmp[:, j, :] = data['ctrs']
+            else:
+                hist_traj_tmp[:, j, :] = hist_traj_tmp[:, j + 1, :] - hist_feats[:, j + 1, :2]
+        hist_traj_tmp = np.transpose(np.matmul(np.linalg.inv(data['rot']), np.transpose(hist_traj_tmp, (0, 2, 1))), (0, 2, 1))
+        hist_traj_tmp = hist_traj_tmp + data['orig']
+        for j in range(hist_feats.shape[0]):
+            cl_list_mod = []
+            moving_dist = np.linalg.norm(np.sum(hist_feats[j], axis=0)[:2])
+            if moving_dist > 1.5 or j == 1:
+                [cl_list, seg_list] = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'][i], viz=False)
+                for k in range(len(cl_list)):
+                    init_idx = np.argmin(np.linalg.norm(cl_list[k] - hist_traj_tmp[j][:1, :], axis=1))
+                    cl_sparse = self.sparse_wp(cl_list[k][init_idx:, :])
+                    cl_list_mod.append(cl_sparse)
+            cl_cands.append(cl_list_mod)
         return cl_cands
 
     def sparse_wp(self, cl):
