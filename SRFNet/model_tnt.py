@@ -12,15 +12,16 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR
+from SRFNet.data import ArgoDataset, collate_fn
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 file_path = os.path.abspath(__file__)
-root_path = os.path.dirname(file_path)
+# root_path = os.path.dirname(file_path)
+root_path = os.getcwd()
 model_name = os.path.basename(file_path).split(".")[0]
 
 ### config ###
@@ -61,7 +62,7 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
     root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
@@ -155,7 +156,6 @@ class case_1_1(nn.Module):
         self.actor_net = ActorNet(config)
         if args.header == 'lanegcn':
             self.pred_net = PredNet(config)
-
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -1337,5 +1337,9 @@ def get_model(args):
         loss = [Loss(config).cuda()]
     net = net.cuda()
     post_process = PostProcess(config).cuda()
+
+    config["save_dir"] = os.path.join(
+        config["save_dir"], args.case
+    )
 
     return config, ArgoDataset, collate_fn, net, loss, post_process, opt

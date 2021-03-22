@@ -1272,7 +1272,7 @@ class PostProcess(nn.Module):
         if len(loss) == 1:
             print(
                 "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
-                % (loss, cls, reg, ade1, fde1, ade, fde)
+                % (loss[0], cls, reg, ade1, fde1, ade, fde)
             )
             print()
         elif len(loss) == 2:
@@ -1332,5 +1332,7 @@ def get_model(args):
         loss = [Loss(config).cuda()]
     net = net.cuda()
     post_process = PostProcess(config).cuda()
-
+    config["save_dir"] = os.path.join(
+        config["save_dir"], args.case
+    )
     return config, ArgoDataset, collate_fn, net, loss, post_process, opt
