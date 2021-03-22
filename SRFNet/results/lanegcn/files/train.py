@@ -72,11 +72,20 @@ def main():
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
 
+    pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
+    pretrained_dict = pre_trained_weight['state_dict']
+    new_model_dict = net.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+    new_model_dict.update(pretrained_dict)
+    net.load_state_dict(new_model_dict)
+
+
     if config["horovod"]:
         for i in range(len(opt)):
-            opt[i].opt = hvd.DistributedOptimizer(
-                opt[i].opt, named_parameters=net.named_parameters()
-            )
+            if opt[i] != None:
+                opt[i].opt = hvd.DistributedOptimizer(
+                    opt[i].opt, named_parameters=net.named_parameters()
+                )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -155,7 +164,8 @@ def main():
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
     if config["horovod"]:
         for i in range(len(opt)):
-            hvd.broadcast_optimizer_state(opt[i].opt, root_rank=0)
+            if opt[i] != None:
+                hvd.broadcast_optimizer_state(opt[i].opt, root_rank=0)
 
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
@@ -200,9 +210,10 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             else:
                 loss_out = loss[j](output[j], data_copy[j])
             losses.append(loss_out)
-            opt[j].zero_grad()
-            loss_out["loss"].backward()
-            lr = opt[j].step(epoch)
+            if opt[j] != None:
+                opt[j].zero_grad()
+                loss_out["loss"].backward()
+                lr = opt[j].step(epoch)
             if j == 0 and len(opt)>1:
                 gt_new = [(gpu(torch.repeat_interleave(data_copy[j]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output[j]['reg'][i]).detach() for i in range(len(data_copy[j]['gt_preds']))]
                 data_copy[j+1]['gt_new'] = gt_new
@@ -305,3 +316,7 @@ def sync(data):
 
 if __name__ == "__main__":
     main()
+
+# TODO: case_2_3
+# TODO: modify prediction head : classify and regression
+# TODO: GAN wrapper (with vanila GAN, conditional GAN, info GAN)
