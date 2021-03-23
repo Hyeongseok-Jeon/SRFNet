@@ -1281,6 +1281,8 @@ class PostProcess(nn.Module):
                 % (loss[0], loss[1], cls, reg, ade1, fde1, ade, fde)
             )
             print()
+        else:
+            print(loss)
 
 
 def pred_metrics(preds, gt_preds, has_preds):
