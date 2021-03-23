@@ -212,14 +212,13 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
                 loss_out = loss[j](output[j], data_copy[j])
             losses.append(loss_out)
             if opt[j] != None:
-                if j == 1:
-                    opt[j].opt.synchronize()
                 opt[j].zero_grad()
                 losses[j]["loss"].backward()
                 lr = opt[j].step(epoch)
             if j == 0 and len(opt)>1:
                 gt_new = [(gpu(torch.repeat_interleave(data_copy[j]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output[j]['reg'][i]).detach() for i in range(len(data_copy[j]['gt_preds']))]
                 data_copy[j+1]['gt_new'] = gt_new
+                opt[j+1].opt.synchronize()
 
         out_added = outputs[0]
         if len(opt) > 1:
