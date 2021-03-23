@@ -1282,7 +1282,11 @@ class PostProcess(nn.Module):
             )
             print()
         else:
-            print(loss)
+            print(
+                "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+                % (np.mean(loss[0]), cls, reg, ade1, fde1, ade, fde)
+            )
+            print()
 
 
 def pred_metrics(preds, gt_preds, has_preds):
