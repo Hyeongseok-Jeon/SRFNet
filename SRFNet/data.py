@@ -37,7 +37,7 @@ class ArgoDataset(Dataset):
 
             if self.train and self.config['rot_aug']:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds',  'file_name', 'cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
 
@@ -53,6 +53,8 @@ class ArgoDataset(Dataset):
                     [np.sin(-dt), np.cos(-dt)]], np.float32)
                 new_data['feats'] = data['feats'].copy()
                 new_data['feats'][:, :, :2] = np.matmul(new_data['feats'][:, :, :2], rot)
+                new_data['ego_feats'] = data['ego_feats'].copy()
+                new_data['ego_feats'][:, :, :2] = np.matmul(new_data['ego_feats'][:, :, :2], rot)
                 new_data['ctrs'] = np.matmul(data['ctrs'], rot)
 
                 graph = dict()
@@ -60,11 +62,12 @@ class ArgoDataset(Dataset):
                     graph[key] = ref_copy(data['graph'][key])
                 graph['ctrs'] = np.matmul(data['graph']['ctrs'], rot)
                 graph['feats'] = np.matmul(data['graph']['feats'], rot)
+                graph['ego_feats'] = np.matmul(data['ego_feats']['feats'], rot)
                 new_data['graph'] = graph
                 data = get_ctrs_idx(new_data)
             else:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ctrs', 'graph']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph','file_name','cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = get_ctrs_idx(new_data)
