@@ -35,7 +35,7 @@ class ArgoDataset(Dataset):
 
             if self.train and self.config['rot_aug']:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'file_name']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'file_name', 'cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
 
@@ -65,7 +65,7 @@ class ArgoDataset(Dataset):
                 data = new_data
             else:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph','file_name']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph','file_name','cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = new_data

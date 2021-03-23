@@ -121,6 +121,7 @@ def gen(mod, config):
                 "file_name",
                 "ego_feats",
                 "graph",
+                'cl_cands',
             ]:
                 store[key] = to_numpy(data[key][j])
                 if key in ["graph"]:

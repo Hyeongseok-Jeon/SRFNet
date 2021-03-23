@@ -46,7 +46,7 @@ sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="model_tnt", type=str, metavar="MODEL", help="model name"
+    "-m", "--model", default="maneuver_pred", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -72,13 +72,6 @@ def main():
     args = parser.parse_args()
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
-
-    pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
-    pretrained_dict = pre_trained_weight['state_dict']
-    new_model_dict = net.state_dict()
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
-    new_model_dict.update(pretrained_dict)
-    net.load_state_dict(new_model_dict)
 
     if config["horovod"]:
         for i in range(len(opt)):
@@ -197,32 +190,15 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
-        data_copy = []
-        for j in range(len(opt)):
-            data_copy.append(data)
-        outputs = []
-        losses = []
-        for j in range(len(opt)):
-            output = net(data_copy[j])
-            outputs.append(output[j])
-            if j == 1:
-                loss_out = loss[j](output[j], data_copy[j], losses[0])
-            else:
-                loss_out = loss[j](output[j], data_copy[j])
-            losses.append(loss_out)
-            if opt[j] != None:
-                opt[j].zero_grad()
-                loss_out["loss"].backward()
-                lr = opt[j].step(epoch)
-            if j == 0 and len(opt) > 1:
-                gt_new = [(gpu(torch.repeat_interleave(data_copy[j]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output[j]['reg'][i]).detach() for i in range(len(data_copy[j]['gt_preds']))]
-                data_copy[j + 1]['gt_new'] = gt_new
 
-        out_added = outputs[0]
-        if len(opt) > 1:
-            out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
-        post_out = post_process(out_added, data)
-        post_process.append(metrics, losses, post_out)
+        output = net(data)
+        loss_out = loss(output, data)
+        post_out = post_process(output, data)
+        post_process.append(metrics, loss_out, post_out)
+
+        opt.zero_grad()
+        loss_out["loss"].backward()
+        lr = opt.step(epoch)
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
