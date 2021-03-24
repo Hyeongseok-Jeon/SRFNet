@@ -264,21 +264,24 @@ def val(config, data_loader, net, loss, post_process, epoch):
             data_copy.append(data)
         outputs = []
         losses = []
-        with torch.no_grad():
-            for j in range(len(loss)):
-                output = net(data_copy[j])
-                outputs.append(output[j])
-                if j == 1:
-                    loss_out = loss[j](output[j], data_copy[j], losses[0])
-                else:
-                    loss_out = loss[j](output[j], data_copy[j])
-                losses.append(loss_out)
+        output0 = net(data_copy[0])
+        outputs.append(output0[0])
+        loss_out0 = loss[0](outputs[0], data_copy[0])
+        losses.append(loss_out0)
 
-            out_added = outputs[0]
-            if len(loss) > 1:
-                out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
-            post_out = post_process(out_added, data)
-            post_process.append(metrics, losses, post_out)
+        if len(loss) > 1:
+            gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
+            data_copy[1]['gt_new'] = gt_new
+            output1 = net(data_copy[1])
+            outputs.append(output1[1])
+            loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
+            losses.append(loss_out1)
+
+        out_added = outputs[0]
+        if len(loss) > 1:
+            out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+        post_out = post_process(out_added, data_copy[0])
+        post_process.append(metrics, loss_out0, post_out)
 
     dt = time.time() - start_time
     metrics = sync(metrics)

@@ -112,9 +112,9 @@ class maneuver_pred_net(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        cl_cands = cl_cands_gather(gpu(data["cl_cands"]))
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
 
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        cl_cands = cl_cands_gather(gpu(data["cl_cands"]),actor_idcs,data)
 
         return out
 
@@ -147,9 +147,9 @@ def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
     return actors, actor_idcs, actors_inter_cat
 
 
-def cl_cands_gather(cl_cands):
-
-
+def cl_cands_gather(cl_cands, actor_idcs, data):
+    batch_size = len(actor_idcs)
+    feat[step, :2] = np.matmul(rot, (traj - orig.reshape(-1, 2)).T).T
 
 
 def get_model(args):
