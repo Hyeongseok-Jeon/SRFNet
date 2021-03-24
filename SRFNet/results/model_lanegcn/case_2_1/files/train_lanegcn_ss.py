@@ -57,7 +57,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="case_1_1", type=str
+    "--case", default="case_2_1", type=str
 )
 
 
@@ -325,3 +325,4 @@ if __name__ == "__main__":
 
 # TODO: modify prediction head : classify and regression
 # TODO: GAN wrapper (with vanila GAN, conditional GAN, info GAN)
+# TODO: check whethere loss calc is valid or not

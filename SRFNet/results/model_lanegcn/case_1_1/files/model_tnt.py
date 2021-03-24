@@ -12,15 +12,16 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR
+from SRFNet.data import ArgoDataset, collate_fn
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 file_path = os.path.abspath(__file__)
-root_path = os.path.dirname(file_path)
+# root_path = os.path.dirname(file_path)
+root_path = os.getcwd()
 model_name = os.path.basename(file_path).split(".")[0]
 
 ### config ###
@@ -61,7 +62,7 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
     root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
@@ -107,7 +108,7 @@ class lanegcn(nn.Module):
         self.m2m = M2M(config)
         self.m2a = M2A(config)
         self.a2a = A2A(config)
-        self.pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -152,8 +153,7 @@ class case_1_1(nn.Module):
         self.config = config
 
         self.actor_net = ActorNet(config)
-        self.pred_net = PredNet(config)
-
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -182,8 +182,7 @@ class case_2_1(nn.Module):
 
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
-
-        self.pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -258,8 +257,7 @@ class case_2_2(nn.Module):
 
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
-
-        self.pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -331,8 +329,7 @@ class case_2_3(nn.Module):
 
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
-
-        self.pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -928,6 +925,66 @@ class PredNet(nn.Module):
         return out
 
 
+class PredNet_tnt(nn.Module):
+    """
+    Final motion forecasting with Linear Residual block
+    """
+
+    def __init__(self, config):
+        super(PredNet_tnt, self).__init__()
+        self.config = config
+        norm = "GN"
+        ng = 1
+
+        n_actor = config["n_actor"]
+
+        pred = []
+        for i in range(config["num_mods"]):
+            pred.append(
+                nn.Sequential(
+                    LinearRes(n_actor, n_actor, norm=norm, ng=ng),
+                    nn.Linear(n_actor, 2 * config["num_preds"]),
+                )
+            )
+        self.pred = nn.ModuleList(pred)
+
+        self.att_dest = AttDest(n_actor)
+        self.cls = nn.Sequential(
+            LinearRes(n_actor, n_actor, norm=norm, ng=ng), nn.Linear(n_actor, 1)
+        )
+
+    def forward(self, actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor]) -> Dict[str, List[Tensor]]:
+        preds = []
+        for i in range(len(self.pred)):
+            preds.append(self.pred[i](actors))
+        reg = torch.cat([x.unsqueeze(1) for x in preds], 1)
+        reg = reg.view(reg.size(0), reg.size(1), -1, 2)
+
+        for i in range(len(actor_idcs)):
+            idcs = actor_idcs[i]
+            ctrs = actor_ctrs[i].view(-1, 1, 1, 2)
+            reg[idcs] = reg[idcs] + ctrs
+
+        dest_ctrs = reg[:, :, -1].detach()
+        feats = self.att_dest(actors, torch.cat(actor_ctrs, 0), dest_ctrs)
+        cls = self.cls(feats).view(-1, self.config["num_mods"])
+
+        cls, sort_idcs = cls.sort(1, descending=True)
+        row_idcs = torch.arange(len(sort_idcs)).long().to(sort_idcs.device)
+        row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
+        sort_idcs = sort_idcs.view(-1)
+        reg = reg[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
+
+        out = dict()
+        out["cls"], out["reg"] = [], []
+        for i in range(len(actor_idcs)):
+            idcs = actor_idcs[i]
+            ctrs = actor_ctrs[i].view(-1, 1, 1, 2)
+            out["cls"].append(cls[idcs])
+            out["reg"].append(reg[idcs])
+        return out
+
+
 class Att(nn.Module):
     """
     Attention block to pass context nodes information to target nodes
@@ -1212,29 +1269,38 @@ class PostProcess(nn.Module):
         super(PostProcess, self).__init__()
         self.config = config
 
-    def forward(self, out,data):
+    def forward(self, out, data):
         post_out = dict()
-        post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
-        post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
-        post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
+        post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
+        post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
         return post_out
 
-    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
         if len(metrics.keys()) == 0:
-            for key in loss_out:
-                if key != "loss":
-                    metrics[key] = 0.0
+            if len(loss_out) == 1:
+                for key in loss_out[0]:
+                    if key != "loss":
+                        metrics[key] = [0.0]
 
-            for key in post_out:
-                metrics[key] = []
-
-        for key in loss_out:
-            if key == "loss":
-                continue
-            if isinstance(loss_out[key], torch.Tensor):
-                metrics[key] += loss_out[key].item()
+                for key in post_out:
+                    metrics[key] = []
             else:
-                metrics[key] += loss_out[key]
+                for key in loss_out[0]:
+                    if key != "loss":
+                        metrics[key] = [0.0, 0.0]
+
+                for key in post_out:
+                    metrics[key] = []
+
+        for key in loss_out[0]:
+            for i in range(len(loss_out)):
+                if key == "loss":
+                    continue
+                if isinstance(loss_out[i][key], torch.Tensor):
+                    metrics[key][i] += loss_out[i][key].item()
+                else:
+                    metrics[key][i] += loss_out[i][key]
 
         for key in post_out:
             metrics[key] += post_out[key]
@@ -1249,21 +1315,29 @@ class PostProcess(nn.Module):
                 "************************* Validation, time %3.2f *************************"
                 % dt
             )
-
-        cls = metrics["cls_loss"] / (metrics["num_cls"] + 1e-10)
-        reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
-        loss = cls + reg
+        loss = []
+        for i in range(len(metrics["cls_loss"])):
+            cls = metrics["cls_loss"][i] / (metrics["num_cls"][i] + 1e-10)
+            reg = metrics["reg_loss"][i] / (metrics["num_reg"][i] + 1e-10)
+            loss.append(cls + reg)
 
         preds = np.concatenate(metrics["preds"], 0)
         gt_preds = np.concatenate(metrics["gt_preds"], 0)
         has_preds = np.concatenate(metrics["has_preds"], 0)
         ade1, fde1, ade, fde, min_idcs = pred_metrics(preds, gt_preds, has_preds)
 
-        print(
-            "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
-            % (loss, cls, reg, ade1, fde1, ade, fde)
-        )
-        print()
+        if len(loss) == 1:
+            print(
+                "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+                % (loss, cls, reg, ade1, fde1, ade, fde)
+            )
+            print()
+        elif len(loss) == 2:
+            print(
+                "loss %2.4f %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+                % (loss[0], loss[1], cls, reg, ade1, fde1, ade, fde)
+            )
+            print()
 
 
 def pred_metrics(preds, gt_preds, has_preds):
@@ -1315,7 +1389,9 @@ def get_model(args):
         loss = [Loss(config).cuda()]
     net = net.cuda()
     post_process = PostProcess(config).cuda()
+
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
     )
+
     return config, ArgoDataset, collate_fn, net, loss, post_process, opt

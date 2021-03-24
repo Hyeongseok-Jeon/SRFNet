@@ -325,3 +325,4 @@ if __name__ == "__main__":
 
 # TODO: modify prediction head : classify and regression
 # TODO: GAN wrapper (with vanila GAN, conditional GAN, info GAN)
+# TODO: check whethere loss calc is valid or not

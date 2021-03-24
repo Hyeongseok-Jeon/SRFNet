@@ -45,8 +45,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 4
+config["val_batch_size"] = 4
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -1214,9 +1214,9 @@ class PostProcess(nn.Module):
 
     def forward(self, out,data):
         post_out = dict()
-        post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
-        post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
-        post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
+        post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
+        post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
         return post_out
 
     def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
