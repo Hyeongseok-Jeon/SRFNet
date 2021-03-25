@@ -61,12 +61,12 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "new", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
-    root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "new", "val_crs_dist6_angle90.p"
 )
-config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', 'test_test.p')
+config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', "new", 'test_test.p')
 config["training"] = True
 
 """Model"""
@@ -153,7 +153,6 @@ class case_1_1(nn.Module):
 
         self.actor_net = ActorNet(config)
         self.pred_net = PredNet(config)
-
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -1212,14 +1211,14 @@ class PostProcess(nn.Module):
         super(PostProcess, self).__init__()
         self.config = config
 
-    def forward(self, out,data):
+    def forward(self, out, data):
         post_out = dict()
         post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
         post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
         post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
         return post_out
 
-    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
         if len(metrics.keys()) == 0:
             for key in loss_out:
                 if key != "loss":

@@ -68,8 +68,8 @@ def main():
 
     os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)
 
-    # gen('val', config)
-    # gen('test', config)
+    gen('val', config)
+    gen('test', config)
     gen('train', config)
 
 
@@ -122,6 +122,8 @@ def gen(mod, config):
                 "ego_feats",
                 "graph",
                 'cl_cands',
+                'cl_cands_mod',
+                'gt_cl_cands'
             ]:
                 store[key] = to_numpy(data[key][j])
                 if key in ["graph"]:

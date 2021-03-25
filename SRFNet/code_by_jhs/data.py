@@ -104,6 +104,9 @@ class ArgoDataset(Dataset):
 
         data['graph'] = self.get_lane_graph(data)
         data['cl_cands'] = self.get_cl_cands(data)
+        cl_cands_mod, gt_cl_cands = self.cl_cands_gather(data['cl_cands'], data['feats'], data)
+        data['cl_cands_mod'] = cl_cands_mod
+        data['gt_cl_cands'] = gt_cl_cands
         return data
 
     def __len__(self):
