@@ -48,7 +48,7 @@ if not os.path.isabs(config["save_dir"]):
 
 config["batch_size"] = 32
 config["val_batch_size"] = 32
-config["workers"] = 0
+config["workers"] = 64
 config["val_workers"] = config["workers"]
 
 """Dataset"""
@@ -139,7 +139,7 @@ class ManNet(nn.Module):
                              padding=0,
                              dilation=1)
             convs.append(conv)
-        self.convs = nn.Sequential(*convs)
+        self.convs = nn.Sequential(*convs).double()
 
         self.output = nn.Linear(channel_list[-1], 1)
 
@@ -287,11 +287,11 @@ def pred_metrics(preds, gt_preds):
 
 
 def get_model(args):
-    net = maneuver_pred_net(config)
+    net = maneuver_pred_net(config).double().cuda()
     params = net.parameters()
     opt = Optimizer(params, config)
-    loss = Loss(config)
-    post_process = PostProcess(config)
+    loss = Loss(config).cuda()
+    post_process = PostProcess(config).cuda()
 
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case

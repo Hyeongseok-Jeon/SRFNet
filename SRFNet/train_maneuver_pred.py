@@ -56,7 +56,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="case_1_1", type=str
+    "--case", default="maneuver_pred", type=str
 )
 am = ArgoverseMap()
 
@@ -72,6 +72,7 @@ def main():
     args = parser.parse_args()
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+
     config['model'] = args.model
     if config["horovod"]:
         opt.opt = hvd.DistributedOptimizer(
