@@ -20,8 +20,8 @@ from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 file_path = os.path.abspath(__file__)
-root_path = os.path.dirname(file_path)
-# root_path = os.getcwd()
+# root_path = os.path.dirname(file_path)
+root_path = os.getcwd()
 model_name = os.path.basename(file_path).split(".")[0]
 
 ### config ###

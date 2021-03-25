@@ -64,7 +64,7 @@ class ArgoDataset(Dataset):
                 graph['feats'] = np.matmul(data['graph']['feats'], rot)
                 graph['ego_feats'] = np.matmul(data['ego_feats']['feats'], rot)
                 new_data['graph'] = graph
-                if self.config['model'] == 'model_maneuver_pred':
+                if self.config['model'] == 'maneuver_pred':
                     cl_cands_mod, gt_cl_cands = self.cl_cands_gather(new_data['cl_cands'], new_data['feats'], new_data)
                     new_data['cl_cands_mod'] = cl_cands_mod
                     new_data['gt_cl_cands'] = gt_cl_cands
@@ -74,7 +74,7 @@ class ArgoDataset(Dataset):
                 for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph', 'file_name', 'cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
-                if self.config['model'] == 'model_maneuver_pred':
+                if self.config['model'] == 'maneuver_pred':
                     cl_cands_mod, gt_cl_cands = self.cl_cands_gather(new_data['cl_cands'], new_data['feats'], new_data)
                     new_data['cl_cands_mod'] = cl_cands_mod
                     new_data['gt_cl_cands'] = gt_cl_cands

@@ -74,9 +74,9 @@ def main():
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
     config['model'] = args.model
     if config["horovod"]:
-        opt.opt = hvd.DistributedOptimizer(
-            opt.opt, named_parameters=net.named_parameters()
-        )
+            opt.opt = hvd.DistributedOptimizer(
+                opt.opt, named_parameters=net.named_parameters()
+            )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -154,7 +154,9 @@ def main():
 
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
     if config["horovod"]:
-        hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
+        for i in range(len(opt)):
+            if opt[i] != None:
+                hvd.broadcast_optimizer_state(opt[i].opt, root_rank=0)
 
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
@@ -185,8 +187,8 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
-        gt = data['gt_cl_cands']
         data = dict(data)
+        gt = data['gt_cl_cands']
         gt_mod = []
         for j in range(len(gt)):
             for k in range(len(gt[j])):

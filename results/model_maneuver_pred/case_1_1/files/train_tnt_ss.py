@@ -46,7 +46,7 @@ sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="model_maneuver_pred", type=str, metavar="MODEL", help="model name"
+    "-m", "--model", default="model_tnt", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -72,11 +72,20 @@ def main():
     args = parser.parse_args()
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
-    config['model'] = args.model
+
+    pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
+    pretrained_dict = pre_trained_weight['state_dict']
+    new_model_dict = net.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+    new_model_dict.update(pretrained_dict)
+    net.load_state_dict(new_model_dict)
+
     if config["horovod"]:
-        opt.opt = hvd.DistributedOptimizer(
-            opt.opt, named_parameters=net.named_parameters()
-        )
+        for i in range(len(opt)):
+            if opt[i] != None:
+                opt[i].opt = hvd.DistributedOptimizer(
+                    opt[i].opt, named_parameters=net.named_parameters()
+                )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -154,7 +163,9 @@ def main():
 
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
     if config["horovod"]:
-        hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
+        for i in range(len(opt)):
+            if opt[i] != None:
+                hvd.broadcast_optimizer_state(opt[i].opt, root_rank=0)
 
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
@@ -185,21 +196,33 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
-        gt = data['gt_cl_cands']
         data = dict(data)
-        gt_mod = []
-        for j in range(len(gt)):
-            for k in range(len(gt[j])):
-                gt_mod.append(gt[j][k])
-        output, target_idcs = net(data)
+        data_copy = []
+        for j in range(len(opt)):
+            data_copy.append(data)
+        outputs = []
+        losses = []
+        for j in range(len(opt)):
+            output = net(data_copy[j])
+            outputs.append(output[j])
+            if j == 1:
+                loss_out = loss[j](output[j], data_copy[j], losses[0])
+            else:
+                loss_out = loss[j](output[j], data_copy[j])
+            losses.append(loss_out)
+            if opt[j] != None:
+                opt[j].zero_grad()
+                loss_out["loss"].backward()
+                lr = opt[j].step(epoch)
+            if j == 0 and len(opt) > 1:
+                gt_new = [(gpu(torch.repeat_interleave(data_copy[j]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output[j]['reg'][i]).detach() for i in range(len(data_copy[j]['gt_preds']))]
+                data_copy[j + 1]['gt_new'] = gt_new
 
-        loss_tot, loss_calc_num, val_idx, pred_idx = loss(output, gt_mod)
-        post_out = post_process(output, target_idcs, data)
-        post_process.append(metrics, loss_tot, loss_calc_num, post_out)
-
-        opt.zero_grad()
-        loss_tot.backward()
-        lr = opt.step(epoch)
+        out_added = outputs[0]
+        if len(opt) > 1:
+            out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+        post_out = post_process(out_added, data)
+        post_process.append(metrics, losses, post_out)
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
@@ -230,20 +253,26 @@ def val(config, data_loader, net, loss, post_process, epoch):
     metrics = dict()
     for i, data in enumerate(data_loader):
         data = dict(data)
-        gt = data['gt_cl_cands']
-        gt_mod = []
-        for j in range(len(gt)):
-            for k in range(len(gt[j])):
-                gt_mod.append(gt[j][k])
-
+        data_copy = []
+        for j in range(len(loss)):
+            data_copy.append(data)
+        outputs = []
+        losses = []
         with torch.no_grad():
-            output, target_idcs = net(data)
-            loss_tot, loss_calc_num, val_idx, pred_idx = loss(output, gt_mod)
-            post_out = post_process(output, target_idcs, data)
-            post_process.append(metrics, loss_tot, loss_calc_num, post_out)
-            loss_tot.backward()
-            post_out = post_process(output, target_idcs, data)
-            post_process.append(metrics, loss_tot, loss_calc_num, post_out)
+            for j in range(len(loss)):
+                output = net(data_copy[j])
+                outputs.append(output[j])
+                if j == 1:
+                    loss_out = loss[j](output[j], data_copy[j], losses[0])
+                else:
+                    loss_out = loss[j](output[j], data_copy[j])
+                losses.append(loss_out)
+
+            out_added = outputs[0]
+            if len(loss) > 1:
+                out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+            post_out = post_process(out_added, data)
+            post_process.append(metrics, losses, post_out)
 
     dt = time.time() - start_time
     metrics = sync(metrics)
