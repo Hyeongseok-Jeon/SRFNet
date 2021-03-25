@@ -37,7 +37,7 @@ class ArgoDataset(Dataset):
 
             if self.train and self.config['rot_aug']:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'file_name', 'cl_cands', 'cl_cands_mod', 'gt_cl_cands']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'file_name', 'cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
 
@@ -64,12 +64,20 @@ class ArgoDataset(Dataset):
                 graph['feats'] = np.matmul(data['graph']['feats'], rot)
                 graph['ego_feats'] = np.matmul(data['ego_feats']['feats'], rot)
                 new_data['graph'] = graph
+                if self.config['model'] == 'model_maneuver_pred':
+                    cl_cands_mod, gt_cl_cands = self.cl_cands_gather(new_data['cl_cands'], new_data['feats'], new_data)
+                    new_data['cl_cands_mod'] = cl_cands_mod
+                    new_data['gt_cl_cands'] = gt_cl_cands
                 data = get_ctrs_idx(new_data)
             else:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph', 'file_name', 'cl_cands', 'cl_cands_mod', 'gt_cl_cands']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph', 'file_name', 'cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
+                if self.config['model'] == 'model_maneuver_pred':
+                    cl_cands_mod, gt_cl_cands = self.cl_cands_gather(new_data['cl_cands'], new_data['feats'], new_data)
+                    new_data['cl_cands_mod'] = cl_cands_mod
+                    new_data['gt_cl_cands'] = gt_cl_cands
                 data = get_ctrs_idx(new_data)
 
             if 'raster' in self.config and self.config['raster']:
@@ -98,9 +106,6 @@ class ArgoDataset(Dataset):
             return data
 
         data['graph'] = self.get_lane_graph(data)
-        cl_cands_mod, gt_cl_cands = self.cl_cands_gather(data['cl_cands'], data['feats'], data)
-        data['cl_cands_mod'] = cl_cands_mod
-        data['gt_cl_cands'] = gt_cl_cands
         return data
 
     def __len__(self):

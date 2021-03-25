@@ -48,9 +48,6 @@ parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
     "-m", "--model", default="model_tnt", type=str, metavar="MODEL", help="model name"
 )
-parser.add_argument(
-    "-m", "--class_model", default="model_maneuver_pred", type=str, metavar="MODEL", help="model name"
-)
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
     "--resume", default="", type=str, metavar="RESUME", help="checkpoint path"
@@ -74,9 +71,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    model_class = import_module(args.class_model)
-    _, _, collate_fn, net, loss, post_process, opt = model.get_model(args)
-    config, Dataset, _, net, _, _, _ = model_class.get_model(args)
+    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
 
     pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
