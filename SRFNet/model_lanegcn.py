@@ -45,8 +45,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 16
+config["val_batch_size"] = 16
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -61,12 +61,12 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "new", "train_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
-    root_path, "dataset", "preprocess", "new", "val_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
 )
-config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', "new", 'test_test.p')
+config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', 'test_test.p')
 config["training"] = True
 
 """Model"""
