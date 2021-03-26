@@ -45,8 +45,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 16
+config["val_batch_size"] = 16
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -153,7 +153,6 @@ class case_1_1(nn.Module):
 
         self.actor_net = ActorNet(config)
         self.pred_net = PredNet(config)
-
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -1212,14 +1211,14 @@ class PostProcess(nn.Module):
         super(PostProcess, self).__init__()
         self.config = config
 
-    def forward(self, out,data):
+    def forward(self, out, data):
         post_out = dict()
         post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
         post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
         post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
         return post_out
 
-    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
         if len(metrics.keys()) == 0:
             for key in loss_out:
                 if key != "loss":

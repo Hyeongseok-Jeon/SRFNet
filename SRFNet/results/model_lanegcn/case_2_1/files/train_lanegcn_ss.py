@@ -3,6 +3,7 @@
 # limitations under the License.
 import sys
 import os
+
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/Desktop/SRFNet'])
@@ -29,13 +30,11 @@ from torch.utils.data import Sampler, DataLoader
 import horovod.torch as hvd
 from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-
 from torch.utils.data.distributed import DistributedSampler
 
 from SRFNet.utils import Logger, load_pretrain
 
 from mpi4py import MPI
-
 
 comm = MPI.COMM_WORLD
 hvd.init()
@@ -43,7 +42,6 @@ torch.cuda.set_device(hvd.local_rank())
 
 root_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, root_path)
-
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
@@ -57,7 +55,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="case_1_1", type=str
+    "--case", default="case_2_1", type=str
 )
 
 
@@ -79,7 +77,6 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
-
 
     if config["horovod"]:
         for i in range(len(opt)):
@@ -135,20 +132,20 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
-    train_sampler = DistributedSampler(
-        dataset, num_replicas=hvd.size(), rank=hvd.rank()
-    )
-    train_loader = DataLoader(
-        dataset,
-        batch_size=config["batch_size"],
-        num_workers=config["workers"],
-        sampler=train_sampler,
-        collate_fn=collate_fn,
-        pin_memory=True,
-        worker_init_fn=worker_init_fn,
-        drop_last=True,
-    )
+    # dataset = Dataset(config["train_split"], config, train=True)
+    # train_sampler = DistributedSampler(
+    #     dataset, num_replicas=hvd.size(), rank=hvd.rank()
+    # )
+    # train_loader = DataLoader(
+    #     dataset,
+    #     batch_size=config["batch_size"],
+    #     num_workers=config["workers"],
+    #     sampler=train_sampler,
+    #     collate_fn=collate_fn,
+    #     pin_memory=True,
+    #     worker_init_fn=worker_init_fn,
+    #     drop_last=True,
+    # )
 
     # Data loader for evaluation
     dataset = Dataset(config["val_split"], config, train=False)
@@ -171,7 +168,7 @@ def main():
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
     for i in range(remaining_epochs):
-        train(epoch + i, config, train_loader, net, loss, post_process, opt, val_loader)
+        train(epoch + i, config, val_loader, net, loss, post_process, opt, val_loader)
 
 
 def worker_init_fn(pid):
@@ -197,28 +194,28 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
-        data = dict(data)
+        # data = dict(data)
         data_copy = []
         for j in range(len(opt)):
-            data_copy.append(data)
+            data_copy.append(data.copy())
         outputs = []
         losses = []
 
         output0 = net(data_copy[0])
         outputs.append(output0[0])
         loss_out0 = loss[0](outputs[0], data_copy[0])
+        if opt[0] != None:
+            opt[0].zero_grad()
+            loss_out0["loss"].backward()
+            lr0 = opt[0].step(epoch)
+            losses.append(loss_out0)
 
-        opt[0].zero_grad()
-        loss_out0["loss"].backward()
-        lr0 = opt[0].step(epoch)
-        losses.append(loss_out0)
-
-        if len(opt)>1:
+        if len(opt) > 1:
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
             data_copy[1]['gt_new'] = gt_new
             output1 = net(data_copy[1])
             outputs.append(output1[1])
-            loss_out1 = loss[1](outputs[1], data_copy[1],  losses[0])
+            loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
             opt[1].zero_grad()
             loss_out1["loss"].backward()
             lr1 = opt[1].step(epoch)
@@ -232,7 +229,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
-            num_iters % save_iters == 0 or epoch >= config["num_epochs"]
+                num_iters % save_iters == 0 or epoch >= config["num_epochs"]
         ):
             save_ckpt(net, opt, config["save_dir"], epoch)
 
@@ -305,10 +302,17 @@ def save_ckpt(net, opt, save_dir, epoch):
             os.path.join(save_dir, save_name),
         )
     elif len(opt) == 2:
-        torch.save(
-            {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
-            os.path.join(save_dir, save_name),
-        )
+        if opt[0] == None:
+            torch.save(
+                {"epoch": epoch, "state_dict": state_dict, "opt2_state": opt[1].opt.state_dict()},
+                os.path.join(save_dir, save_name),
+            )
+        else:
+            torch.save(
+                {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
+                os.path.join(save_dir, save_name),
+            )
+
 
 def sync(data):
     data_list = comm.allgather(data)

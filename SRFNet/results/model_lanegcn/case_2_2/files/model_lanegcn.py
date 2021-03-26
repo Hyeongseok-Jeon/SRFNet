@@ -45,8 +45,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 1
-config["val_batch_size"] = 1
+config["batch_size"] = 2
+config["val_batch_size"] = 2
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -208,13 +208,10 @@ class case_2_1(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
+        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            if i == 0:
-                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
-            else:
-                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
+            graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -252,8 +249,8 @@ class case_2_2(nn.Module):
         super(case_2_2, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
 
         self.fusion_net = FusionNet(config)
         self.inter_pred_net = PredNet(config)
@@ -284,13 +281,12 @@ class case_2_2(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
+        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            if i == 0:
-                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
-            else:
-                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
+            print(nodes.shape)
+            print(nearest_ctrs_cat[:, idx[i]].long())
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
+            graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -357,13 +353,10 @@ class case_2_3(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
+        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            if i == 0:
-                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
-            else:
-                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long()].unsqueeze(dim=1)
+            graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle

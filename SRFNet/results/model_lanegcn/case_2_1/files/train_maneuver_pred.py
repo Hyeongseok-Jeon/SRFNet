@@ -46,7 +46,7 @@ sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="maneuver_pred", type=str, metavar="MODEL", help="model name"
+    "-m", "--model", default="model_maneuver_pred", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -56,7 +56,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="case_1_1", type=str
+    "--case", default="maneuver_pred", type=str
 )
 am = ArgoverseMap()
 
@@ -73,12 +73,11 @@ def main():
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
 
+    config['model'] = args.model
     if config["horovod"]:
-        for i in range(len(opt)):
-            if opt[i] != None:
-                opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
-                )
+        opt.opt = hvd.DistributedOptimizer(
+            opt.opt, named_parameters=net.named_parameters()
+        )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -156,9 +155,7 @@ def main():
 
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
     if config["horovod"]:
-        for i in range(len(opt)):
-            if opt[i] != None:
-                hvd.broadcast_optimizer_state(opt[i].opt, root_rank=0)
+        hvd.broadcast_optimizer_state(opt.opt, root_rank=0)
 
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
@@ -189,15 +186,20 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
+        gt = data['gt_cl_cands']
         data = dict(data)
+        gt_mod = []
+        for j in range(len(gt)):
+            for k in range(len(gt[j])):
+                gt_mod.append(gt[j][k])
+        output, target_idcs = net(data)
 
-        output = net(data)
-        loss_out = loss(output, data)
-        post_out = post_process(output, data)
-        post_process.append(metrics, loss_out, post_out)
+        loss_tot, loss_calc_num, val_idx, pred_idx = loss(output, gt_mod)
+        post_out = post_process(output, target_idcs, data)
+        post_process.append(metrics, loss_tot, loss_calc_num, post_out)
 
         opt.zero_grad()
-        loss_out["loss"].backward()
+        loss_tot.backward()
         lr = opt.step(epoch)
 
         num_iters = int(np.round(epoch * num_batches))
@@ -229,26 +231,20 @@ def val(config, data_loader, net, loss, post_process, epoch):
     metrics = dict()
     for i, data in enumerate(data_loader):
         data = dict(data)
-        data_copy = []
-        for j in range(len(loss)):
-            data_copy.append(data)
-        outputs = []
-        losses = []
-        with torch.no_grad():
-            for j in range(len(loss)):
-                output = net(data_copy[j])
-                outputs.append(output[j])
-                if j == 1:
-                    loss_out = loss[j](output[j], data_copy[j], losses[0])
-                else:
-                    loss_out = loss[j](output[j], data_copy[j])
-                losses.append(loss_out)
+        gt = data['gt_cl_cands']
+        gt_mod = []
+        for j in range(len(gt)):
+            for k in range(len(gt[j])):
+                gt_mod.append(gt[j][k])
 
-            out_added = outputs[0]
-            if len(loss) > 1:
-                out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
-            post_out = post_process(out_added, data)
-            post_process.append(metrics, losses, post_out)
+        with torch.no_grad():
+            output, target_idcs = net(data)
+            loss_tot, loss_calc_num, val_idx, pred_idx = loss(output, gt_mod)
+            post_out = post_process(output, target_idcs, data)
+            post_process.append(metrics, loss_tot, loss_calc_num, post_out)
+            loss_tot.backward()
+            post_out = post_process(output, target_idcs, data)
+            post_process.append(metrics, loss_tot, loss_calc_num, post_out)
 
     dt = time.time() - start_time
     metrics = sync(metrics)

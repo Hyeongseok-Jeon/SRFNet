@@ -48,6 +48,9 @@ parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
     "-m", "--model", default="model_tnt", type=str, metavar="MODEL", help="model name"
 )
+parser.add_argument(
+    "-m", "--class_model", default="model_maneuver_pred", type=str, metavar="MODEL", help="model name"
+)
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
     "--resume", default="", type=str, metavar="RESUME", help="checkpoint path"
@@ -71,7 +74,9 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    model_class = import_module(args.class_model)
+    _, _, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    config, Dataset, _, net_class, _, _, _ = model_class.get_model(args)
 
     pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
@@ -79,6 +84,13 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
+
+    pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/50.000.ckpt')
+    pretrained_dict = pre_trained_weight['state_dict']
+    new_model_dict = net_class.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+    new_model_dict.update(pretrained_dict)
+    net_class.load_state_dict(new_model_dict)
 
     if config["horovod"]:
         for i in range(len(opt)):
@@ -162,6 +174,7 @@ def main():
     )
 
     hvd.broadcast_parameters(net.state_dict(), root_rank=0)
+    hvd.broadcast_parameters(net_class.state_dict(), root_rank=0)
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
@@ -170,7 +183,7 @@ def main():
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
     for i in range(remaining_epochs):
-        train(epoch + i, config, train_loader, net, loss, post_process, opt, val_loader)
+        train(epoch + i, config, train_loader, net, net_class, loss, post_process, opt, val_loader)
 
 
 def worker_init_fn(pid):
@@ -180,9 +193,10 @@ def worker_init_fn(pid):
     random.seed(random_seed)
 
 
-def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=None):
+def train(epoch, config, train_loader, net, net_class, loss, post_process, opt, val_loader=None):
     train_loader.sampler.set_epoch(int(epoch))
     net.train()
+    net_class.eval()
 
     num_batches = len(train_loader)
     epoch_per_batch = 1.0 / num_batches
@@ -202,6 +216,8 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             data_copy.append(data)
         outputs = []
         losses = []
+
+        output, target_idcs = net_class(data)
         for j in range(len(opt)):
             output = net(data_copy[j])
             outputs.append(output[j])

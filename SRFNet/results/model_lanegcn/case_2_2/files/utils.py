@@ -83,6 +83,17 @@ def to_long(data):
         data = data.long()
     return data
 
+def to_int(data):
+    if isinstance(data, dict):
+        for key in data.keys():
+            data[key] = to_int(data[key])
+    if isinstance(data, list) or isinstance(data, tuple):
+        data = [to_int(x) for x in data]
+    if torch.is_tensor(data) and data.dtype == torch.int16:
+        data = data.int()
+    return data
+
+
 class Optimizer(object):
     def __init__(self, params, config, coef=None):
         if not (isinstance(params, list) or isinstance(params, tuple)):
