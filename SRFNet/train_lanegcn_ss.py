@@ -203,15 +203,15 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             data_copy.append(data)
         outputs = []
         losses = []
-
+        
         output0 = net(data_copy[0])
         outputs.append(output0[0])
         loss_out0 = loss[0](outputs[0], data_copy[0])
-
-        opt[0].zero_grad()
-        loss_out0["loss"].backward()
-        lr0 = opt[0].step(epoch)
-        losses.append(loss_out0)
+        if opt[0] != None:
+          opt[0].zero_grad()
+          loss_out0["loss"].backward()
+          lr0 = opt[0].step(epoch)
+          losses.append(loss_out0)
 
         if len(opt)>1:
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
@@ -305,10 +305,16 @@ def save_ckpt(net, opt, save_dir, epoch):
             os.path.join(save_dir, save_name),
         )
     elif len(opt) == 2:
-        torch.save(
-            {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
-            os.path.join(save_dir, save_name),
-        )
+        if opt[0] == None:
+            torch.save(
+                {"epoch": epoch, "state_dict": state_dict, "opt2_state": opt[1].opt.state_dict()},
+                os.path.join(save_dir, save_name),
+            )
+        else:
+            torch.save(
+                {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
+                os.path.join(save_dir, save_name),
+            )
 
 def sync(data):
     data_list = comm.allgather(data)
