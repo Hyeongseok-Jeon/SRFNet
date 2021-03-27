@@ -164,7 +164,7 @@ def train(model, epoch, config, train_loader, net, loss, post_process, opt, val_
         loss_tot.backward()
         lr = opt.step(epoch)
 
-        loss_tt += loss_tot.item()
+        loss_tt += loss_tot.item() * loss_calc_num
         count += loss_calc_num
         acc += model.pred_metrics(post_out["out"], post_out["gt_preds"])
 

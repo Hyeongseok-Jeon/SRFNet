@@ -208,7 +208,7 @@ class Loss(nn.Module):
         val_idx = []
         pred_idx = []
         for i in range(len(out)):
-            if not (len(gt_mod[i]) == 1 and gt_mod[i][0] == 0):
+            if not (len(gt_mod[i]) == 1 or gt_mod[i][0] == 0):
                 pred_idx.append(i)
                 if len(gt_mod[i]) > 1:
                     pred = out[i].unsqueeze(dim=0)
@@ -279,10 +279,13 @@ def pred_metrics(preds, gt_preds):
     tot_num = len(preds)
     correct_num = 0
     for i in range(tot_num):
-        pred = np.argmax(preds[i])
-        gt = np.where(gt_preds[i]==1)[0][0]
-        if pred == gt:
-            correct_num += 1
+        if len(gt_preds[i]) == 0 and gt_preds[i][0] == 0:
+            tot_num -= 1
+        else:
+            pred = np.argmax(preds[i])
+            gt = np.where(gt_preds[i]==1)[0][0]
+            if pred == gt:
+                correct_num += 1
     return correct_num*100 / tot_num
 
 
