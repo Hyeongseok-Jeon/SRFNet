@@ -197,7 +197,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         data = dict(data)
         data_copy = []
         for j in range(len(opt)):
-            data_copy.append(data)
+            data_copy.append(data.copy())
         outputs = []
         losses = []
 
