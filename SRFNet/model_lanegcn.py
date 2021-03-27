@@ -45,8 +45,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 2
-config["val_batch_size"] = 2
+config["batch_size"] = 16
+config["val_batch_size"] = 16
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -196,7 +196,7 @@ class case_2_1(nn.Module):
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist']
+        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -269,7 +269,7 @@ class case_2_2(nn.Module):
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist']
+        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -283,8 +283,6 @@ class case_2_2(nn.Module):
         graph_adjs = []
         idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            print(nodes.shape)
-            print(nearest_ctrs_cat[:, idx[i]].long())
             element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
             graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
@@ -341,7 +339,7 @@ class case_2_3(nn.Module):
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist']
+        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
