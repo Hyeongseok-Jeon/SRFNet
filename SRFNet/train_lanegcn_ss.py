@@ -192,8 +192,8 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
     start_time = time.time()
     metrics = dict()
+    net.zero_grad()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
-        net.zero_grad()
         epoch += epoch_per_batch
         data = dict(data)
         data_copy = []
@@ -222,6 +222,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             loss_out1["loss"].backward()
             lr1 = opt[1].step(epoch)
             losses.append(loss_out1)
+            net.zero_grad()
 
         out_added = outputs[0]
         if len(opt) > 1:
