@@ -55,7 +55,7 @@ def main():
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
     config['model'] = args.model
-    net = torch.nn.DataParallel(net)
+
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
         if not os.path.isabs(ckpt_path):
