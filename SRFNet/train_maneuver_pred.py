@@ -138,7 +138,7 @@ def train(model, epoch, config, train_loader, net, loss, post_process, opt, val_
     count = 0
     loss_tt = 0
     for i, data in enumerate(train_loader):
-        current = (i + 1) * config['batch_size']
+        current = (i + 1)
         percent = float(current) * 100 / num_batches
         arrow = '-' * int(percent / 100 * 20 - 1) + '>'
         spaces = ' ' * (20 - len(arrow))
