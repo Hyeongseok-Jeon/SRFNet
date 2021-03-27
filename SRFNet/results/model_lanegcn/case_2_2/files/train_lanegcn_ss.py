@@ -168,7 +168,7 @@ def main():
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
     for i in range(remaining_epochs):
-        train(epoch + i, config, train_loader, net, loss, post_process, opt, val_loader)
+        train(epoch + i, config, val_loader, net, loss, post_process, opt, val_loader)
 
 
 def worker_init_fn(pid):

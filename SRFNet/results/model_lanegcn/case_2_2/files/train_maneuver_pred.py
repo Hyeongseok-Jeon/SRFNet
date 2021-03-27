@@ -222,12 +222,16 @@ def save_ckpt(net, opt, save_dir, epoch):
         state_dict[key] = state_dict[key].cpu()
 
     save_name = "%3.3f.ckpt" % epoch
-
-    torch.save(
-        {"epoch": epoch, "state_dict": state_dict, "opt_state": opt.opt.state_dict()},
-        os.path.join(save_dir, save_name),
-    )
-
+    if len(opt) == 1:
+        torch.save(
+            {"epoch": epoch, "state_dict": state_dict, "opt_state": opt[0].opt.state_dict()},
+            os.path.join(save_dir, save_name),
+        )
+    elif len(opt) == 2:
+        torch.save(
+            {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
+            os.path.join(save_dir, save_name),
+        )
 
 
 if __name__ == "__main__":
