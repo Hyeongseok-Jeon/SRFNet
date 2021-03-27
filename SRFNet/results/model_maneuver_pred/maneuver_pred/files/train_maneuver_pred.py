@@ -51,6 +51,8 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="maneuver_pred", type=str
 )
+am = ArgoverseMap()
+
 
 def main():
     # Import all settings for experiment.
