@@ -53,7 +53,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    config, Dataset, collate_fn, net, loss, post_process, opt= model.get_model(args)
     config['model'] = args.model
 
     if args.resume or args.weight:
@@ -118,10 +118,10 @@ def main():
 
     epoch = config["num_epochs"]
     for i in range(epoch):
-        train(i, config, train_loader, net, loss, post_process, opt, val_loader)
+        train(model, i, config, train_loader, net, loss, post_process, opt, val_loader)
 
 
-def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=None):
+def train(model, epoch, config, train_loader, net, loss, post_process, opt, val_loader=None):
     net.train()
 
     num_batches = len(train_loader)
@@ -134,7 +134,10 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
     start_time = time.time()
     metrics = dict()
-    for i, data in tqdm(enumerate(train_loader)):
+    acc = 0
+    count = 0
+    loss_tt = 0
+    for i, data in enumerate(train_loader):
         current = (i + 1) * config['batch_size']
         percent = float(current) * 100 / num_batches
         arrow = '-' * int(percent / 100 * 20 - 1) + '>'
@@ -142,7 +145,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         if i == 0:
             sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%' % (epoch + 1, arrow, spaces, percent))
         else:
-            sys.stdout.write('\r' + '%d th Epoch Progress: [%s%s] %d %%' % (epoch + 1, arrow, spaces, percent))
+            sys.stdout.write('\r' + '%d th Epoch Progress: [%s%s] %d %%  [loss = %s] [acc = %s]' % (epoch + 1, arrow, spaces, percent, acc/count, loss_tt/count))
 
         epoch += epoch_per_batch
         gt = data['gt_cl_cands']
@@ -160,6 +163,10 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         opt.zero_grad()
         loss_tot.backward()
         lr = opt.step(epoch)
+
+        loss_tt += loss_tot.item()
+        count += loss_calc_num
+        acc += model.pred_metrics(post_out["out"], post_out["gt_preds"])
 
         num_iters = int(np.round(epoch * num_batches))
         if num_iters % save_iters == 0 or epoch >= config["num_epochs"]:
