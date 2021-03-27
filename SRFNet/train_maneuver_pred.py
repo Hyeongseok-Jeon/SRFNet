@@ -97,7 +97,7 @@ def main():
             shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=False)
+    dataset = Dataset(config["train_split"], config, train=True)
     train_loader = DataLoader(
         dataset,
         batch_size=config["batch_size"],
