@@ -27,10 +27,7 @@ from shapely.geometry import LineString, Point
 from tqdm import tqdm
 import torch
 from torch.utils.data import Sampler, DataLoader
-from SRFNet.utils import gpu, to_long, Optimizer, StepLR
-from argoverse.map_representation.map_api import ArgoverseMap
 
-from torch.utils.data.distributed import DistributedSampler
 
 from SRFNet.utils import Logger, load_pretrain
 
@@ -137,7 +134,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
     start_time = time.time()
     metrics = dict()
-    for i, data in enumerate(train_loader):
+    for i, data in tqdm(enumerate(train_loader)):
         current = (i + 1) * config['batch_size']
         percent = float(current) * 100 / num_batches
         arrow = '-' * int(percent / 100 * 20 - 1) + '>'
