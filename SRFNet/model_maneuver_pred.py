@@ -208,17 +208,16 @@ class Loss(nn.Module):
         val_idx = []
         pred_idx = []
         for i in range(len(out)):
-            if not (len(gt_mod[i]) == 1 or gt_mod[i][0] == 0):
+            if not (len(gt_mod[i]) == 1):
                 pred_idx.append(i)
                 if len(gt_mod[i]) > 1:
                     pred = out[i].unsqueeze(dim=0)
                     gt = gpu(torch.where(gt_mod[i]==1)[0])
 
-                    self.class_loss(pred, gt)
                     loss_calc_num += 1
                     loss += self.class_loss(pred, gt)
                     val_idx.append(i)
-        return loss, loss_calc_num, val_idx, pred_idx
+        return loss/loss_calc_num, loss_calc_num, val_idx, pred_idx
 
 
 class PostProcess(nn.Module):

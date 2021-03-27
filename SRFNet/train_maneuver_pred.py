@@ -145,7 +145,7 @@ def train(model, epoch, config, train_loader, net, loss, post_process, opt, val_
         if i == 0:
             sys.stdout.write('\n' + ' %d th Epoch Progress: [%s%s] %d %%' % (epoch + 1, arrow, spaces, percent))
         else:
-            sys.stdout.write('\r' + '%d th Epoch Progress: [%s%s] %d %%  [loss = %s] [acc = %s]' % (epoch + 1, arrow, spaces, percent, acc/count, loss_tt/count))
+            sys.stdout.write('\r' + '%d th Epoch Progress: [%s%s] %d %%  [loss = %s] [acc = %s]' % (epoch + 1, arrow, spaces, percent, loss_tt/count, acc/count))
 
         epoch += epoch_per_batch
         gt = data['gt_cl_cands']
@@ -166,7 +166,7 @@ def train(model, epoch, config, train_loader, net, loss, post_process, opt, val_
 
         loss_tt += loss_tot.item() * loss_calc_num
         count += loss_calc_num
-        acc += model.pred_metrics(post_out["out"], post_out["gt_preds"])
+        acc += model.pred_metrics(post_out["out"], post_out["gt_preds"]) * loss_calc_num
 
         num_iters = int(np.round(epoch * num_batches))
         if num_iters % save_iters == 0 or epoch >= config["num_epochs"]:
