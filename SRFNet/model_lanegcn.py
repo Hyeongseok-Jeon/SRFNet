@@ -180,7 +180,7 @@ class case_2_1(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -253,7 +253,7 @@ class case_2_2(nn.Module):
         self.map_net = MapNet(config).cuda()
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -323,7 +323,7 @@ class case_2_3(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
