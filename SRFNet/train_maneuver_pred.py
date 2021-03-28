@@ -155,7 +155,6 @@ def train(model, epoch, config, train_loader, net, loss, post_process, opt, val_
             for k in range(len(gt[j])):
                 gt_mod.append(gt[j][k])
         output, target_idcs = net(data)
-
         loss_tot, loss_calc_num, val_idx, pred_idx = loss(output, gt_mod)
         post_out = post_process(output, target_idcs, data)
         post_process.append(metrics, loss_tot, loss_calc_num, post_out)
