@@ -204,9 +204,6 @@ def val(config, data_loader, net, loss, post_process, epoch):
             loss_tot, loss_calc_num, val_idx, pred_idx = loss(output, gt_mod)
             post_out = post_process(output, target_idcs, data)
             post_process.append(metrics, loss_tot, loss_calc_num, post_out)
-            loss_tot.backward()
-            post_out = post_process(output, target_idcs, data)
-            post_process.append(metrics, loss_tot, loss_calc_num, post_out)
 
     dt = time.time() - start_time
     post_process.display(metrics, dt, epoch)
