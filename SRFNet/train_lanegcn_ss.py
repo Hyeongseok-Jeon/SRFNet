@@ -212,6 +212,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
         if len(opt) > 1:
             print('second optimizer')
+            net.zero_grad()
             opt[1].opt.synchronize()
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
             data_copy[1]['gt_new'] = gt_new
