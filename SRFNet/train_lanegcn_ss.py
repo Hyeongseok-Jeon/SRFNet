@@ -89,7 +89,7 @@ def main():
                         j = j+1
 
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
+                    opt[i].opt, named_parameters=named_parameters()
                 )
 
     if args.resume or args.weight:
