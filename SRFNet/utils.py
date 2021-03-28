@@ -110,9 +110,7 @@ class Optimizer(object):
 
         param_groups = []
         for param in params:
-            if isinstance(param, tuple):
-                parameters = param[1]
-                param_groups.append({"params": parameters, "lr": 0})
+            param_groups.append({"params": param, "lr": 0})
 
         opt = config["opt"]
         assert opt == "sgd" or opt == "adam"
