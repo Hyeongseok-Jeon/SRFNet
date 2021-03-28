@@ -1305,7 +1305,7 @@ def get_model(args):
         params2 = [p for n, p in theta_params]
         opt = [None, Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
-        params = [theta_params]
+        params = [None, theta_params]
     else:
         print('model is not specified. therefore the lanegcn is loaded')
         net = lanegcn(config, args)
