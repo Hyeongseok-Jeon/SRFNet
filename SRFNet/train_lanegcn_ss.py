@@ -195,15 +195,15 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
-        data_copy = []
-        for j in range(len(opt)):
-            data_copy.append(data.copy())
+        # data_copy = []
+        # for j in range(len(opt)):
+        #     data_copy.append(data.copy())
         outputs = []
         losses = []
 
-        output0 = net(data_copy[0])
+        output0 = net(data)
         outputs.append(output0[0])
-        loss_out0 = loss[0](outputs[0], data_copy[0])
+        loss_out0 = loss[0](outputs[0], data)
         if opt[0] != None:
             opt[0].zero_grad()
             loss_out0["loss"].backward()
@@ -214,11 +214,11 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             print('second optimizer')
             net.zero_grad()
             opt[1].opt.synchronize()
-            gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
-            data_copy[1]['gt_new'] = gt_new
-            output1 = net(data_copy[1])
+            gt_new = [(gpu(torch.repeat_interleave(data['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data['gt_preds']))]
+            data['gt_new'] = gt_new
+            output1 = net(data)
             outputs.append(output1[1])
-            loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
+            loss_out1 = loss[1](outputs[1], data, losses[0])
             opt[1].zero_grad()
             loss_out1["loss"].backward()
             lr1 = opt[1].step(epoch)
@@ -227,7 +227,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         out_added = outputs[0]
         if len(opt) > 1:
             out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
-        post_out = post_process(out_added, data_copy[0])
+        post_out = post_process(out_added, data)
         post_process.append(metrics, loss_out0, post_out)
 
         num_iters = int(np.round(epoch * num_batches))
