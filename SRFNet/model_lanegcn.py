@@ -230,7 +230,7 @@ class case_2_1(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -303,7 +303,7 @@ class case_2_2(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -373,7 +373,7 @@ class case_2_3(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -1293,7 +1293,7 @@ def get_model(args):
     elif args.case == 'case_2_2':
         net = case_2_2(config, args)
         w_params = [(name, param) for name, param in net.named_parameters() if ('actor_net' in name or 'pred_net' in name)]
-        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'inter_pred_net' in name)]
+        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
         params1 = [p for n, p in w_params]
         params2 = [p for n, p in theta_params]
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
@@ -1301,7 +1301,7 @@ def get_model(args):
         params = [w_params, theta_params]
     elif args.case == 'case_2_3':
         net = case_2_3(config, args)
-        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'inter_pred_net' in name)]
+        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
         params2 = [p for n, p in theta_params]
         opt = [None, Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
