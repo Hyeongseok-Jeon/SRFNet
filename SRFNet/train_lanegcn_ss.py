@@ -57,9 +57,6 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="case_2_2", type=str
 )
-parser.add_argument(
-    "--gpu_id", default=None, type=int
-)
 
 
 def main():
