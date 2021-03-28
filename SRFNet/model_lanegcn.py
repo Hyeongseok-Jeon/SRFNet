@@ -1288,8 +1288,11 @@ def get_model(args):
         loss = [Loss(config).cuda()]
     elif args.case == 'case_2_2':
         net = case_2_2(config, args)
-        params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
-        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        params1 = [(name, param) for name, param in net.named_parameters() if ('actor_net' in name or 'pred_net' in name)]
+        params2 = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'inter_pred_net' in name)]
+
+        # params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
+        # params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
     elif args.case == 'case_2_3':
