@@ -81,8 +81,15 @@ def main():
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
+                named_parameters = []
+                j = 0
+                for param_group in opt[i].opt.param_groups:
+                    for i, v in enumerate(param_group['params']):
+                        named_parameters.append(('allreduce.noname.%s' % j, v))
+                        j = j+1
+
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt
+                    opt[i].opt, named_parameters=net.named_parameters()
                 )
 
     if args.resume or args.weight:
