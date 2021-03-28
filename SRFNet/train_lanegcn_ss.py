@@ -218,11 +218,11 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             data['gt_new'] = gt_new
             output1 = net(data)
             outputs.append(output1[1])
-            loss_out1 = loss[1](outputs[1], data, losses[0])
+            loss_out0 = loss[1](outputs[1], data, losses[0])
             opt[1].zero_grad()
-            loss_out1["loss"].backward()
+            loss_out0["loss"].backward()
             lr1 = opt[1].step(epoch)
-            losses.append(loss_out1)
+            losses.append(loss_out0)
 
         out_added = outputs[0]
         if len(opt) > 1:
