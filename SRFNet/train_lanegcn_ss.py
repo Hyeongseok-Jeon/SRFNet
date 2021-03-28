@@ -69,7 +69,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    config, Dataset, collate_fn, net, loss, post_process, opt, params = model.get_model(args)
 
     pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
@@ -82,7 +82,7 @@ def main():
         for i in range(len(opt)):
             if opt[i] != None:
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
+                    opt[i].opt, named_parameters=params[i]
                 )
 
     if args.resume or args.weight:
