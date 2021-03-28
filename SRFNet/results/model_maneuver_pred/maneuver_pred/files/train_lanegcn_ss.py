@@ -237,10 +237,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             dt = time.time() - start_time
             metrics = sync(metrics)
             if hvd.rank() == 0:
-                if opt[0] != None:
-                    post_process.display(metrics, dt, epoch, lr0)
-                else:
-                    post_process.display(metrics, dt, epoch, lr1)
+                post_process.display(metrics, dt, epoch, lr0)
             start_time = time.time()
             metrics = dict()
 
