@@ -205,6 +205,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         outputs.append(output0[0])
         loss_out0 = loss[0](outputs[0], data_copy[0])
         if opt[0] != None:
+            opt[0].opt.skip_synchronize()
             opt[0].zero_grad()
             loss_out0["loss"].backward()
             lr0 = opt[0].step(epoch)
