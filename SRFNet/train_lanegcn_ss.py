@@ -81,9 +81,14 @@ def main():
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
-                opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
-                )
+                if i == 0:
+                    opt[i].opt = hvd.DistributedOptimizer(
+                        opt[i].opt, named_parameters=list(net.actor_net.named_parameters()) + list(net.pred_net.named_parameters()),
+                    )
+                else:
+                    opt[i].opt = hvd.DistributedOptimizer(
+                        opt[i].opt, named_parameters=list(net.map_net.named_parameters()) + list(net.fusion_net.named_parameters()) + list(net.inter_pred_net.named_parameters()),
+                    )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
