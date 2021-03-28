@@ -111,8 +111,8 @@ class lanegcn(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, _ = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         '''
         actors : N x 3 x 20 (N : number of vehicles in every batches)
         '''
@@ -120,7 +120,7 @@ class lanegcn(nn.Module):
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         '''
         graph['idcs'] : list with length or batch size, graph['idcs'][i]
         '''
@@ -137,7 +137,7 @@ class lanegcn(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
@@ -156,13 +156,13 @@ class case_1_1(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, _ = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
 
         # prediction
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
@@ -186,14 +186,14 @@ class case_2_1(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
         actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
         actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
@@ -222,7 +222,7 @@ class case_2_1(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         out_non_interact = self.pred_net(actors, actor_idcs, actor_ctrs)
         # transform prediction to world coordinates
         for i in range(len(out_non_interact["reg"])):
@@ -259,14 +259,14 @@ class case_2_2(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
         actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
         actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
@@ -295,7 +295,7 @@ class case_2_2(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         out_non_interact = self.pred_net(actors, actor_idcs, actor_ctrs)
         # transform prediction to world coordinates
         for i in range(len(out_non_interact["reg"])):
@@ -329,14 +329,14 @@ class case_2_3(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
         actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
         actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
@@ -365,7 +365,7 @@ class case_2_3(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         out_non_interact = self.pred_net(actors, actor_idcs, actor_ctrs)
         # transform prediction to world coordinates
         for i in range(len(out_non_interact["reg"])):
@@ -1156,7 +1156,7 @@ class Loss(nn.Module):
         self.pred_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"], gpu_id = self.args.gpu_id), gpu(data["has_preds"], gpu_id = self.args.gpu_id))
+        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
         loss_out["loss"] = loss_out["cls_loss"] / (
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
@@ -1192,7 +1192,7 @@ class L1loss(nn.Module):
         loss = dict()
         for key in pred_loss.keys():
             loss[key] = pred_loss[key]
-        loss_out = self.inter_loss(out, gpu(data["gt_new"], gpu_id = self.args.gpu_id), gpu(data["has_preds"], gpu_id = self.args.gpu_id))
+        loss_out = self.inter_loss(out, gpu(data["gt_new"]), gpu(data["has_preds"]))
         loss["loss"] = loss_out
         return loss
 
@@ -1281,20 +1281,14 @@ def get_model(args):
         w_params = [(name, param) for name, param in net.named_parameters()]
         params1 = [p for n, p in w_params]
         opt = [Optimizer(params1, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id)]
+        loss = [Loss(config).cuda()]
         params = [params1]
     elif args.case == 'case_2_1':
         net = case_2_1(config, args)
         w_params = [(name, param) for name, param in net.named_parameters()]
         params1 = [p for n, p in w_params]
         opt = [Optimizer(params1, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id)]
+        loss = [Loss(config).cuda()]
         params = [params1]
     elif args.case == 'case_2_2':
         net = case_2_2(config, args)
@@ -1303,20 +1297,14 @@ def get_model(args):
         params1 = [p for n, p in w_params]
         params2 = [p for n, p in theta_params]
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda(), L1loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id), L1loss(config).cuda(args.gpu_id)]
+        loss = [Loss(config).cuda(), L1loss(config).cuda()]
         params = [w_params, theta_params]
     elif args.case == 'case_2_3':
         net = case_2_3(config, args)
         theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
         params2 = [p for n, p in theta_params]
         opt = [None, Optimizer(params2, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda(), L1loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id), L1loss(config).cuda(args.gpu_id)]
+        loss = [Loss(config).cuda(), L1loss(config).cuda()]
         params = [None, theta_params]
     else:
         print('model is not specified. therefore the lanegcn is loaded')
@@ -1324,13 +1312,8 @@ def get_model(args):
         params = net.parameters()
         opt = [Optimizer(params, config)]
         loss = [Loss(config).cuda()]
-    if args.gpu_id == None:
-        net = net.cuda()
-        post_process = PostProcess(config).cuda()
-    else:
-        net = net.cuda(args.gpu_id)
-        post_process = PostProcess(config).cuda(args.gpu_id)
-
+    net = net.cuda()
+    post_process = PostProcess(config).cuda()
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
     )
