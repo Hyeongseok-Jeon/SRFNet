@@ -77,24 +77,24 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
-    #
-    # if config["horovod"]:
-    #     for i in range(len(opt)):
-    #         if opt[i] != None:
-    #             named_parameters = []
-    #             j = 0
-    #             for param_group in opt[i].opt.param_groups:
-    #                 for i, v in enumerate(param_group['params']):
-    #                     named_parameters.append(('allreduce.noname.%s' % j, v))
-    #                     j = j+1
-    #
-    #             opt[i].opt = hvd.DistributedOptimizer(opt[i].opt, named_parameters=named_parameters)
+
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
-                opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
-                )
+                named_parameters = []
+                j = 0
+                for param_group in opt[i].opt.param_groups:
+                    for i, v in enumerate(param_group['params']):
+                        named_parameters.append(('allreduce.noname.%s' % j, v))
+                        j = j+1
+                opt[i].opt = hvd.DistributedOptimizer(opt[i].opt, named_parameters=named_parameters)
+
+    # if config["horovod"]:
+    #     for i in range(len(opt)):
+    #         if opt[i] != None:
+    #             opt[i].opt = hvd.DistributedOptimizer(
+    #                 opt[i].opt, named_parameters=net.named_parameters()
+    #             )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
