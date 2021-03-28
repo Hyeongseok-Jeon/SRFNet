@@ -126,7 +126,7 @@ class lanegcn(nn.Module):
         '''
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        # actor-map fusion cycle 
+        # actor-map fusion cycle
         nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
@@ -180,7 +180,7 @@ class case_2_1(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -230,7 +230,7 @@ class case_2_1(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -253,7 +253,7 @@ class case_2_2(nn.Module):
         self.map_net = MapNet(config).cuda()
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -303,7 +303,7 @@ class case_2_2(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -323,7 +323,7 @@ class case_2_3(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -373,7 +373,7 @@ class case_2_3(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -1278,25 +1278,34 @@ def pred_metrics(preds, gt_preds, has_preds):
 def get_model(args):
     if args.case == 'case_1_1':
         net = case_1_1(config, args)
-        params = net.parameters()
-        opt = [Optimizer(params, config)]
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
         loss = [Loss(config).cuda()]
+        params = [params1]
     elif args.case == 'case_2_1':
         net = case_2_1(config, args)
-        params = net.parameters()
-        opt = [Optimizer(params, config)]
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
         loss = [Loss(config).cuda()]
+        params = [params1]
     elif args.case == 'case_2_2':
         net = case_2_2(config, args)
-        params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
-        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        w_params = [(name, param) for name, param in net.named_parameters() if ('actor_net' in name or 'pred_net' in name)]
+        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
+        params1 = [p for n, p in w_params]
+        params2 = [p for n, p in theta_params]
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
+        params = [w_params, theta_params]
     elif args.case == 'case_2_3':
         net = case_2_3(config, args)
-        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
+        params2 = [p for n, p in theta_params]
         opt = [None, Optimizer(params2, config)]
         loss = [Loss(config).cuda(), L1loss(config).cuda()]
+        params = [None, theta_params]
     else:
         print('model is not specified. therefore the lanegcn is loaded')
         net = lanegcn(config, args)
@@ -1308,4 +1317,4 @@ def get_model(args):
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
     )
-    return config, ArgoDataset, collate_fn, net, loss, post_process, opt
+    return config, ArgoDataset, collate_fn, net, loss, post_process, opt, params

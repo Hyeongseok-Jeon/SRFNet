@@ -69,7 +69,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    config, Dataset, collate_fn, net, loss, post_process, opt, params = model.get_model(args)
 
     pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
@@ -82,7 +82,7 @@ def main():
         for i in range(len(opt)):
             if opt[i] != None:
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
+                    opt[i].opt, named_parameters=params[i]
                 )
 
     if args.resume or args.weight:
@@ -132,7 +132,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=False)
+    dataset = Dataset(config["train_split"], config, train=True)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
@@ -206,19 +206,16 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         loss_out0 = loss[0](outputs[0], data_copy[0])
         if opt[0] != None:
             opt[0].zero_grad()
-            opt[1].zero_grad()
             loss_out0["loss"].backward()
             lr0 = opt[0].step(epoch)
-            losses.append(loss_out0)
+        losses.append(loss_out0)
 
         if len(opt) > 1:
-            print('second optimizer')
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
             data_copy[1]['gt_new'] = gt_new
             output1 = net(data_copy[1])
             outputs.append(output1[1])
             loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
-            opt[0].zero_grad()
             opt[1].zero_grad()
             loss_out1["loss"].backward()
             lr1 = opt[1].step(epoch)
