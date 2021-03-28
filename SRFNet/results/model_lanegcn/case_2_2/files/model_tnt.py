@@ -12,15 +12,16 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR
+from SRFNet.data import ArgoDataset, collate_fn
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 file_path = os.path.abspath(__file__)
-root_path = os.path.dirname(file_path)
+# root_path = os.path.dirname(file_path)
+root_path = os.getcwd()
 model_name = os.path.basename(file_path).split(".")[0]
 
 ### config ###
@@ -45,8 +46,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 16
-config["val_batch_size"] = 16
+config["batch_size"] = 32
+config["val_batch_size"] = 32
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -61,7 +62,7 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
     root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
@@ -107,12 +108,12 @@ class lanegcn(nn.Module):
         self.m2m = M2M(config)
         self.m2a = M2A(config)
         self.a2a = A2A(config)
-        self.pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, _ = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         '''
         actors : N x 3 x 20 (N : number of vehicles in every batches)
         '''
@@ -120,13 +121,13 @@ class lanegcn(nn.Module):
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         '''
         graph['idcs'] : list with length or batch size, graph['idcs'][i]
         '''
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        # actor-map fusion cycle
+        # actor-map fusion cycle 
         nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
@@ -137,7 +138,7 @@ class lanegcn(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
@@ -152,17 +153,17 @@ class case_1_1(nn.Module):
         self.config = config
 
         self.actor_net = ActorNet(config)
-        self.pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, _ = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
 
         # prediction
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
@@ -180,23 +181,22 @@ class case_2_1(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.interaction_net = PredNet(config)
-
-        self.pred_net = PredNet(config)
+        self.inter_pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
         actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
         actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
+        nearest_ctrs_hist = data['nearest_ctrs_hist']
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -208,10 +208,13 @@ class case_2_1(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
-        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
-            graph_adjs.append(element)
+            if i == 0:
+                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
+            else:
+                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -222,7 +225,7 @@ class case_2_1(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         out_non_interact = self.pred_net(actors, actor_idcs, actor_ctrs)
         # transform prediction to world coordinates
         for i in range(len(out_non_interact["reg"])):
@@ -230,7 +233,7 @@ class case_2_1(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -249,27 +252,26 @@ class case_2_2(nn.Module):
         super(case_2_2, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config).cuda()
-        self.map_net = MapNet(config).cuda()
+        self.actor_net = ActorNet(config)
+        self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.interaction_net = PredNet(config)
-
-        self.pred_net = PredNet(config)
+        self.inter_pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
         actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
         actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
+        nearest_ctrs_hist = data['nearest_ctrs_hist']
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -281,10 +283,13 @@ class case_2_2(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
-        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
-            graph_adjs.append(element)
+            if i == 0:
+                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
+            else:
+                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -295,7 +300,7 @@ class case_2_2(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         out_non_interact = self.pred_net(actors, actor_idcs, actor_ctrs)
         # transform prediction to world coordinates
         for i in range(len(out_non_interact["reg"])):
@@ -303,7 +308,7 @@ class case_2_2(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -323,23 +328,22 @@ class case_2_3(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.interaction_net = PredNet(config)
-
-        self.pred_net = PredNet(config)
+        self.inter_pred_net = PredNet(config)
+        self.pred_net_tnt = PredNet_tnt(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"], gpu_id = self.args.gpu_id))
-        actor_ctrs = gpu(data["ctrs"], gpu_id = self.args.gpu_id)
+        actors, actor_idcs, actors_inter_cat = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
         actors = self.actor_net(actors)
         actors_inter_cat = self.actor_net(torch.cat(actors_inter_cat))
         actors_inter_cat = torch.cat([actors_inter_cat[actors.shape[0] * i:actors.shape[0] * (i + 1), :].unsqueeze(dim=1) for i in range(5)], dim=1)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"], gpu_id = self.args.gpu_id)))
+        graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
+        nearest_ctrs_hist = data['nearest_ctrs_hist']
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -351,10 +355,13 @@ class case_2_3(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
-        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            element = nodes[nearest_ctrs_cat[:, idx[i]].long()].unsqueeze(dim=1)
-            graph_adjs.append(element)
+            if i == 0:
+                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
+            else:
+                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
+                graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -365,7 +372,7 @@ class case_2_3(nn.Module):
         interaction_mod = self.fusion_net(actors_inter_cat, graph_adjs)
 
         # prediction
-        rot, orig = gpu(data["rot"], gpu_id = self.args.gpu_id), gpu(data["orig"], gpu_id = self.args.gpu_id)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
         out_non_interact = self.pred_net(actors, actor_idcs, actor_ctrs)
         # transform prediction to world coordinates
         for i in range(len(out_non_interact["reg"])):
@@ -373,7 +380,7 @@ class case_2_3(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -918,6 +925,66 @@ class PredNet(nn.Module):
         return out
 
 
+class PredNet_tnt(nn.Module):
+    """
+    Final motion forecasting with Linear Residual block
+    """
+
+    def __init__(self, config):
+        super(PredNet_tnt, self).__init__()
+        self.config = config
+        norm = "GN"
+        ng = 1
+
+        n_actor = config["n_actor"]
+
+        pred = []
+        for i in range(config["num_mods"]):
+            pred.append(
+                nn.Sequential(
+                    LinearRes(n_actor, n_actor, norm=norm, ng=ng),
+                    nn.Linear(n_actor, 2 * config["num_preds"]),
+                )
+            )
+        self.pred = nn.ModuleList(pred)
+
+        self.att_dest = AttDest(n_actor)
+        self.cls = nn.Sequential(
+            LinearRes(n_actor, n_actor, norm=norm, ng=ng), nn.Linear(n_actor, 1)
+        )
+
+    def forward(self, actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor]) -> Dict[str, List[Tensor]]:
+        preds = []
+        for i in range(len(self.pred)):
+            preds.append(self.pred[i](actors))
+        reg = torch.cat([x.unsqueeze(1) for x in preds], 1)
+        reg = reg.view(reg.size(0), reg.size(1), -1, 2)
+
+        for i in range(len(actor_idcs)):
+            idcs = actor_idcs[i]
+            ctrs = actor_ctrs[i].view(-1, 1, 1, 2)
+            reg[idcs] = reg[idcs] + ctrs
+
+        dest_ctrs = reg[:, :, -1].detach()
+        feats = self.att_dest(actors, torch.cat(actor_ctrs, 0), dest_ctrs)
+        cls = self.cls(feats).view(-1, self.config["num_mods"])
+
+        cls, sort_idcs = cls.sort(1, descending=True)
+        row_idcs = torch.arange(len(sort_idcs)).long().to(sort_idcs.device)
+        row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
+        sort_idcs = sort_idcs.view(-1)
+        reg = reg[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
+
+        out = dict()
+        out["cls"], out["reg"] = [], []
+        for i in range(len(actor_idcs)):
+            idcs = actor_idcs[i]
+            ctrs = actor_ctrs[i].view(-1, 1, 1, 2)
+            out["cls"].append(cls[idcs])
+            out["reg"].append(reg[idcs])
+        return out
+
+
 class Att(nn.Module):
     """
     Attention block to pass context nodes information to target nodes
@@ -1156,7 +1223,7 @@ class Loss(nn.Module):
         self.pred_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"], gpu_id = self.args.gpu_id), gpu(data["has_preds"], gpu_id = self.args.gpu_id))
+        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
         loss_out["loss"] = loss_out["cls_loss"] / (
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
@@ -1192,7 +1259,7 @@ class L1loss(nn.Module):
         loss = dict()
         for key in pred_loss.keys():
             loss[key] = pred_loss[key]
-        loss_out = self.inter_loss(out, gpu(data["gt_new"], gpu_id = self.args.gpu_id), gpu(data["has_preds"], gpu_id = self.args.gpu_id))
+        loss_out = self.inter_loss(out, gpu(data["gt_new"]), gpu(data["has_preds"]))
         loss["loss"] = loss_out
         return loss
 
@@ -1204,27 +1271,36 @@ class PostProcess(nn.Module):
 
     def forward(self, out, data):
         post_out = dict()
-        post_out["preds"] = [x[1:2].detach().cpu().numpy() for x in out["reg"]]
-        post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
-        post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
+        post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
+        post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
         return post_out
 
     def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
         if len(metrics.keys()) == 0:
-            for key in loss_out:
-                if key != "loss":
-                    metrics[key] = 0.0
+            if len(loss_out) == 1:
+                for key in loss_out[0]:
+                    if key != "loss":
+                        metrics[key] = [0.0]
 
-            for key in post_out:
-                metrics[key] = []
-
-        for key in loss_out:
-            if key == "loss":
-                continue
-            if isinstance(loss_out[key], torch.Tensor):
-                metrics[key] += loss_out[key].item()
+                for key in post_out:
+                    metrics[key] = []
             else:
-                metrics[key] += loss_out[key]
+                for key in loss_out[0]:
+                    if key != "loss":
+                        metrics[key] = [0.0, 0.0]
+
+                for key in post_out:
+                    metrics[key] = []
+
+        for key in loss_out[0]:
+            for i in range(len(loss_out)):
+                if key == "loss":
+                    continue
+                if isinstance(loss_out[i][key], torch.Tensor):
+                    metrics[key][i] += loss_out[i][key].item()
+                else:
+                    metrics[key][i] += loss_out[i][key]
 
         for key in post_out:
             metrics[key] += post_out[key]
@@ -1239,21 +1315,29 @@ class PostProcess(nn.Module):
                 "************************* Validation, time %3.2f *************************"
                 % dt
             )
-
-        cls = metrics["cls_loss"] / (metrics["num_cls"] + 1e-10)
-        reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
-        loss = cls + reg
+        loss = []
+        for i in range(len(metrics["cls_loss"])):
+            cls = metrics["cls_loss"][i] / (metrics["num_cls"][i] + 1e-10)
+            reg = metrics["reg_loss"][i] / (metrics["num_reg"][i] + 1e-10)
+            loss.append(cls + reg)
 
         preds = np.concatenate(metrics["preds"], 0)
         gt_preds = np.concatenate(metrics["gt_preds"], 0)
         has_preds = np.concatenate(metrics["has_preds"], 0)
         ade1, fde1, ade, fde, min_idcs = pred_metrics(preds, gt_preds, has_preds)
 
-        print(
-            "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
-            % (loss, cls, reg, ade1, fde1, ade, fde)
-        )
-        print()
+        if len(loss) == 1:
+            print(
+                "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+                % (loss, cls, reg, ade1, fde1, ade, fde)
+            )
+            print()
+        elif len(loss) == 2:
+            print(
+                "loss %2.4f %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+                % (loss[0], loss[1], cls, reg, ade1, fde1, ade, fde)
+            )
+            print()
 
 
 def pred_metrics(preds, gt_preds, has_preds):
@@ -1278,60 +1362,36 @@ def pred_metrics(preds, gt_preds, has_preds):
 def get_model(args):
     if args.case == 'case_1_1':
         net = case_1_1(config, args)
-        w_params = [(name, param) for name, param in net.named_parameters()]
-        params1 = [p for n, p in w_params]
-        opt = [Optimizer(params1, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id)]
-        params = [params1]
+        params = net.parameters()
+        opt = [Optimizer(params, config)]
+        loss = [Loss(config).cuda()]
     elif args.case == 'case_2_1':
         net = case_2_1(config, args)
-        w_params = [(name, param) for name, param in net.named_parameters()]
-        params1 = [p for n, p in w_params]
-        opt = [Optimizer(params1, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id)]
-        params = [params1]
+        params = net.parameters()
+        opt = [Optimizer(params, config)]
+        loss = [Loss(config).cuda()]
     elif args.case == 'case_2_2':
         net = case_2_2(config, args)
-        w_params = [(name, param) for name, param in net.named_parameters() if ('actor_net' in name or 'pred_net' in name)]
-        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
-        params1 = [p for n, p in w_params]
-        params2 = [p for n, p in theta_params]
+        params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
+        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda(), L1loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id), L1loss(config).cuda(args.gpu_id)]
-        params = [w_params, theta_params]
+        loss = [Loss(config).cuda(), L1loss(config).cuda()]
     elif args.case == 'case_2_3':
         net = case_2_3(config, args)
-        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
-        params2 = [p for n, p in theta_params]
+        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
         opt = [None, Optimizer(params2, config)]
-        if args.gpu_id == None:
-            loss = [Loss(config).cuda(), L1loss(config).cuda()]
-        else:
-            loss = [Loss(config).cuda(args.gpu_id), L1loss(config).cuda(args.gpu_id)]
-        params = [None, theta_params]
+        loss = [Loss(config).cuda(), L1loss(config).cuda()]
     else:
         print('model is not specified. therefore the lanegcn is loaded')
         net = lanegcn(config, args)
         params = net.parameters()
         opt = [Optimizer(params, config)]
         loss = [Loss(config).cuda()]
-    if args.gpu_id == None:
-        net = net.cuda()
-        post_process = PostProcess(config).cuda()
-    else:
-        net = net.cuda(args.gpu_id)
-        post_process = PostProcess(config).cuda(args.gpu_id)
+    net = net.cuda()
+    post_process = PostProcess(config).cuda()
 
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
     )
-    return config, ArgoDataset, collate_fn, net, loss, post_process, opt, params
+
+    return config, ArgoDataset, collate_fn, net, loss, post_process, opt

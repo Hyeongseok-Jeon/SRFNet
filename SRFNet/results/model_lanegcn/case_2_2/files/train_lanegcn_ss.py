@@ -57,9 +57,6 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="case_2_2", type=str
 )
-parser.add_argument(
-    "--gpu_id", default=None, type=int
-)
 
 
 def main():
@@ -135,7 +132,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
