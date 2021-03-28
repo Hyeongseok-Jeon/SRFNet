@@ -77,19 +77,23 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
-
+    #
+    # if config["horovod"]:
+    #     for i in range(len(opt)):
+    #         if opt[i] != None:
+    #             named_parameters = []
+    #             j = 0
+    #             for param_group in opt[i].opt.param_groups:
+    #                 for i, v in enumerate(param_group['params']):
+    #                     named_parameters.append(('allreduce.noname.%s' % j, v))
+    #                     j = j+1
+    #
+    #             opt[i].opt = hvd.DistributedOptimizer(opt[i].opt, named_parameters=named_parameters)
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
-                named_parameters = []
-                j = 0
-                for param_group in opt[i].opt.param_groups:
-                    for i, v in enumerate(param_group['params']):
-                        named_parameters.append(('allreduce.noname.%s' % j, v))
-                        j = j+1
-
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=named_parameters()
+                    opt[i].opt, named_parameters=net.named_parameters()
                 )
 
     if args.resume or args.weight:
@@ -218,6 +222,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             losses.append(loss_out0)
 
         if len(opt) > 1:
+            print('second optimizer')
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
             data_copy[1]['gt_new'] = gt_new
             output1 = net(data_copy[1])
