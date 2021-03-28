@@ -81,14 +81,9 @@ def main():
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
-                if i == 0:
-                    opt[i].opt = hvd.DistributedOptimizer(
-                        opt[i].opt, named_parameters=list(net.actor_net.named_parameters()) + list(net.pred_net.named_parameters()),
-                    )
-                else:
-                    opt[i].opt = hvd.DistributedOptimizer(
-                        opt[i].opt, named_parameters=list(net.map_net.named_parameters()) + list(net.fusion_net.named_parameters()) + list(net.inter_pred_net.named_parameters()),
-                    )
+                opt[i].opt = hvd.DistributedOptimizer(
+                    opt[i].opt, named_parameters=list(net.named_parameters())
+                )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -198,7 +193,6 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     start_time = time.time()
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
-        net.zero_grad()
         epoch += epoch_per_batch
         data = dict(data)
         data_copy = []
@@ -211,20 +205,19 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         outputs.append(output0[0])
         loss_out0 = loss[0](outputs[0], data_copy[0])
         if opt[0] != None:
-            opt[1].zero_grad()
             opt[0].zero_grad()
             loss_out0["loss"].backward()
             lr0 = opt[0].step(epoch)
             losses.append(loss_out0)
 
         if len(opt) > 1:
+            print('second optimizer')
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
             data_copy[1]['gt_new'] = gt_new
             output1 = net(data_copy[1])
             outputs.append(output1[1])
             loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
             opt[1].zero_grad()
-            opt[0].zero_grad()
             loss_out1["loss"].backward()
             lr1 = opt[1].step(epoch)
             losses.append(loss_out1)
