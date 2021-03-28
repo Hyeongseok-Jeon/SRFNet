@@ -208,7 +208,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             opt[0].zero_grad()
             loss_out0["loss"].backward()
             lr0 = opt[0].step(epoch)
-            losses.append(loss_out0)
+        losses.append(loss_out0)
 
         if len(opt) > 1:
             print('second optimizer')
