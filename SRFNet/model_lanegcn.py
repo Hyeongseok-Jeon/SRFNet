@@ -12,10 +12,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR
+from SRFNet.data import ArgoDataset, collate_fn
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -61,10 +61,10 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
-    root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
+    root_path, "SRFNet", "dataset", "preprocess", "val_crs_dist6_angle90.p"
 )
 config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', 'test_test.p')
 config["training"] = True
@@ -100,14 +100,65 @@ class lanegcn(nn.Module):
         super(lanegcn, self).__init__()
         self.config = config
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
 
-        self.a2m = A2M(config)
-        self.m2m = M2M(config)
-        self.m2a = M2A(config)
-        self.a2a = A2A(config)
-        self.pred_net = PredNet(config)
+        self.a2m = A2M(config).cuda()
+        self.m2m = M2M(config).cuda()
+        self.m2a = M2A(config).cuda()
+        self.a2a = A2A(config).cuda()
+        self.pred_net = PredNet(config).cuda()
+
+    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+        # construct actor feature
+        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        actor_ctrs = gpu(data["ctrs"])
+        '''
+        actors : N x 3 x 20 (N : number of vehicles in every batches)
+        '''
+
+        actors = self.actor_net(actors)
+
+        # construct map features
+        graph = graph_gather(to_long(gpu(data["graph"])))
+        '''
+        graph['idcs'] : list with length or batch size, graph['idcs'][i]
+        '''
+        nodes, node_idcs, node_ctrs = self.map_net(graph)
+
+        # actor-map fusion cycle
+        nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
+        nodes = self.m2m(nodes, graph)
+        actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
+        actors = self.a2a(actors, actor_idcs, actor_ctrs)
+
+        # prediction
+        '''
+        actors : N x 128 (N : number of vehicles in every batches)
+        '''
+        out = self.pred_net(actors, actor_idcs, actor_ctrs)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
+        # transform prediction to world coordinates
+        for i in range(len(out["reg"])):
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
+                1, 1, 1, -1
+            )
+        return [out]
+
+
+class wrapper_mid(nn.Module):
+    def __init__(self, config, args):
+        super(wrapper_mid, self).__init__()
+        self.config = config
+
+        self.actor_net = ActorNet(config).cuda()
+        self.map_net = MapNet(config).cuda()
+
+        self.a2m = A2M(config).cuda()
+        self.m2m = M2M(config).cuda()
+        self.m2a = M2A(config).cuda()
+        self.a2a = A2A(config).cuda()
+        self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
