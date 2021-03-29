@@ -1474,7 +1474,7 @@ def get_model(args):
         params1 = [p for n, p in w_params]
         opt = [Optimizer(params1, config)]
         loss = [Loss(config).cuda()]
-        params = [params1]
+        params = [w_params]
 
     net = net.cuda()
     post_process = PostProcess(config).cuda()
