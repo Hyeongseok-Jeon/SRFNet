@@ -12,10 +12,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from SRFNet.data import ArgoDataset, collate_fn
-from SRFNet.utils import gpu, to_long, Optimizer, StepLR
+from data import ArgoDataset, collate_fn
+from utils import gpu, to_long, Optimizer, StepLR
 
-from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -61,10 +61,10 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
-    root_path, "SRFNet", "dataset", "preprocess", "val_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
 )
 config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', 'test_test.p')
 config["training"] = True
