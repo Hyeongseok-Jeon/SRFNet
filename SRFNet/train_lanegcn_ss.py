@@ -55,7 +55,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="case_2_2", type=str
+    "--case", default="wrapper_midfusion", type=str
 )
 
 
@@ -132,7 +132,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
