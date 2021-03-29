@@ -303,9 +303,9 @@ def get_model(args):
     opt = Optimizer(params, config)
     loss = Loss(config).cuda()
     post_process = PostProcess(config).cuda()
-
-    config["save_dir"] = os.path.join(
-        config["save_dir"], args.case
-    )
+    if args != 'None':
+        config["save_dir"] = os.path.join(
+            config["save_dir"], args.case
+        )
 
     return config, ArgoDataset, collate_fn, net, loss, post_process, opt

@@ -16,6 +16,7 @@ from data import ArgoDataset, collate_fn
 from utils import gpu, to_long, Optimizer, StepLR
 
 from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.model_maneuver_pred import get_model as get_manuever_model
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -150,6 +151,14 @@ class wrapper_mid(nn.Module):
     def __init__(self, config, args):
         super(wrapper_mid, self).__init__()
         self.config = config
+        _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
+        pre_trained_weight = torch.load(os.path.join(root_path, "SRFNet/results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
+        pretrained_dict = pre_trained_weight['state_dict']
+        new_model_dict = maneuver_pred_net.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+        new_model_dict.update(pretrained_dict)
+        maneuver_pred_net.load_state_dict(new_model_dict)
+        self.maneu_pred = maneuver_pred_net
 
         self.actor_net = ActorNet(config).cuda()
         self.map_net = MapNet(config).cuda()
@@ -158,11 +167,19 @@ class wrapper_mid(nn.Module):
         self.m2m = M2M(config).cuda()
         self.m2a = M2A(config).cuda()
         self.a2a = A2A(config).cuda()
+
+        self.react_net = ReactNet(config)
+        self.gating_net = GateNet(config)
         self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
+
+        cl_cands = gpu(data['cl_cands'])
+        cl_cands_mod = data['cl_cands_mod']
         actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        egos = [actor_idcs[i][0].unsqueeze(dim=0) for i in range(len(actor_idcs))]
+        targets = [actor_idcs[i][1].unsqueeze(dim=0) for i in range(len(actor_idcs))]
         actor_ctrs = gpu(data["ctrs"])
         '''
         actors : N x 3 x 20 (N : number of vehicles in every batches)
@@ -183,6 +200,13 @@ class wrapper_mid(nn.Module):
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
 
+        # reaction prediction
+        actors_target = actors[torch.cat(targets)]
+        cl_cands_target = [cl_cands[i][1] for i in range(len(cl_cands))]
+        actors_ego = actors[torch.cat(egos)]
+        cl_cands_ego = [cl_cands[i][0] for i in range(len(cl_cands))]
+
+        pred_inter = self.react_net(actors_target, actors_ego)
         # prediction
         '''
         actors : N x 128 (N : number of vehicles in every batches)
@@ -261,7 +285,7 @@ class case_2_1(nn.Module):
         graph_adjs = []
         idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long(), :].unsqueeze(dim=1)
             graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
@@ -334,7 +358,7 @@ class case_2_2(nn.Module):
         graph_adjs = []
         idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            element = nodes[nearest_ctrs_cat[:, idx[i]].long(),:].unsqueeze(dim=1)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long(), :].unsqueeze(dim=1)
             graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
@@ -557,6 +581,92 @@ class ActorNet(nn.Module):
 
         out = self.output(out)[:, :, -1]
         return out
+
+
+class ReactNet(nn.Module):
+    def __init__(self, config):
+        super(ReactNet, self).__init__()
+        self.config = config
+        self.relu = nn.ReLU()
+
+        n_out = [256, 256, 256, 256]
+        blocks = [nn.Linear, nn.Linear, nn.Linear]
+        self.inter_pred = [blocks[i](n_out[i], n_out[i + 1]).cuda() for i in range(len(blocks))]
+
+        in_channel = [4, 8, 16, 32, 64]
+        out_channel = [8, 16, 32, 64, 128]
+        kernel_size = [4, 4, 4, 2, 2]
+        stride = [4, 4, 4, 2, 2]
+        padding = 0
+        dilation = 1
+        conv1d = []
+        for i in range(len(in_channel)):
+            net = nn.Conv1d(in_channels=in_channel[i],
+                            out_channels=out_channel[i],
+                            kernel_size=kernel_size[i],
+                            stride=stride[i],
+                            padding=padding,
+                            dilation=dilation)
+            conv1d.append(net)
+            conv1d.append(nn.ReLU6())
+        self.conv1d = nn.Sequential(*conv1d).cuda()
+        self.conv1d_out = nn.Linear(128, 128).cuda()
+
+    def forward(self, actors_target, actors_ego):
+        cat = torch.cat([actors_target, actors_ego], dim=1)
+        cat_tot = [cat.unsqueeze(dim=1)]
+        for i in range(len(self.inter_pred)):
+            cat = self.inter_pred[i](cat)
+            cat = self.relu(cat)
+            cat_tot.append(cat.unsqueeze(dim=1))
+        cat_tot = torch.cat(cat_tot, dim=1)
+
+        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze())
+
+        return pred_inter
+
+
+class GateNet(nn.Module):
+    def __init__(self, config):
+        super(GateNet, self).__init__()
+        self.config = config
+        self.relu = nn.ReLU()
+
+        n_out = [256, 256, 256, 256]
+        blocks = [nn.Linear, nn.Linear, nn.Linear]
+        self.inter_pred = [blocks[i](n_out[i], n_out[i + 1]).cuda() for i in range(len(blocks))]
+
+        in_channel = [4, 8, 16, 32, 64]
+        out_channel = [8, 16, 32, 64, 128]
+        kernel_size = [4, 4, 4, 2, 2]
+        stride = [4, 4, 4, 2, 2]
+        padding = 0
+        dilation = 1
+        conv1d = []
+        for i in range(len(in_channel)):
+            net = nn.Conv1d(in_channels=in_channel[i],
+                            out_channels=out_channel[i],
+                            kernel_size=kernel_size[i],
+                            stride=stride[i],
+                            padding=padding,
+                            dilation=dilation)
+            conv1d.append(net)
+            conv1d.append(nn.ReLU6())
+        self.conv1d = nn.Sequential(*conv1d).cuda()
+        self.conv1d_out = nn.Linear(128, 128).cuda()
+
+    def forward(self, actors_target, actors_ego):
+        cat = torch.cat([actors_target, actors_ego], dim=1)
+        cat_tot = [cat.unsqueeze(dim=1)]
+        for i in range(len(self.inter_pred)):
+            cat = self.inter_pred[i](cat)
+            cat = self.relu(cat)
+            cat_tot.append(cat.unsqueeze(dim=1))
+        cat_tot = torch.cat(cat_tot, dim=1)
+
+        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze())
+
+        return pred_inter
 
 
 class MapNet(nn.Module):
@@ -1360,9 +1470,12 @@ def get_model(args):
     else:
         print('model is not specified. therefore the lanegcn is loaded')
         net = lanegcn(config, args)
-        params = net.parameters()
-        opt = [Optimizer(params, config)]
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
         loss = [Loss(config).cuda()]
+        params = [params1]
+
     net = net.cuda()
     post_process = PostProcess(config).cuda()
     config["save_dir"] = os.path.join(

@@ -55,7 +55,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="wrapper_midfusion", type=str
+    "--case", default="wrapper_mid_fusion", type=str
 )
 
 
