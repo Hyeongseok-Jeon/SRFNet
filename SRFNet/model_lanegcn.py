@@ -162,17 +162,30 @@ class wrapper_mid(nn.Module):
 
         self.maneu_pred = maneuver_pred_net.eval()
 
-        self.actor_net = ActorNet(config).eval()
-        self.map_net = MapNet(config).eval()
+        if args.case == 'wrapper_mid_fusion':
+            self.actor_net = ActorNet(config)
+            self.map_net = MapNet(config)
 
-        self.a2m = A2M(config).eval()
-        self.m2m = M2M(config).eval()
-        self.m2a = M2A(config).eval()
-        self.a2a = A2A(config).eval()
+            self.a2m = A2M(config)
+            self.m2m = M2M(config)
+            self.m2a = M2A(config)
+            self.a2a = A2A(config)
 
-        self.react_net = ReactNet(config)
-        self.gating_net = GateNet(config)
-        self.pred_net = PredNet(config)
+            self.react_net = ReactNet(config)
+            self.gating_net = GateNet(config)
+            self.pred_net = PredNet(config)
+        elif args.case == 'wrapper_mid_fusion_transfer':
+            self.actor_net = ActorNet(config).eval()
+            self.map_net = MapNet(config).eval()
+
+            self.a2m = A2M(config).eval()
+            self.m2m = M2M(config).eval()
+            self.m2a = M2A(config).eval()
+            self.a2a = A2A(config).eval()
+
+            self.react_net = ReactNet(config)
+            self.gating_net = GateNet(config)
+            self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
