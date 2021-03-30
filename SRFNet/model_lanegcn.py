@@ -162,13 +162,13 @@ class wrapper_mid(nn.Module):
 
         self.maneu_pred = maneuver_pred_net.eval()
 
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
+        self.actor_net = ActorNet(config).eval()
+        self.map_net = MapNet(config).eval()
 
-        self.a2m = A2M(config)
-        self.m2m = M2M(config)
-        self.m2a = M2A(config)
-        self.a2a = A2A(config)
+        self.a2m = A2M(config).eval()
+        self.m2m = M2M(config).eval()
+        self.m2a = M2A(config).eval()
+        self.a2a = A2A(config).eval()
 
         self.react_net = ReactNet(config)
         self.gating_net = GateNet(config)
