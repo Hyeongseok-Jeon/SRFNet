@@ -59,7 +59,7 @@ def load_pretrain(net, pretrain_dict):
     net.load_state_dict(state_dict)
 
 
-def gpu(data):
+def gpu(data, gpu_id = None):
     """
     Transfer tensor in `data` to gpu recursively
     `data` can be dict, list or tuple
@@ -69,7 +69,10 @@ def gpu(data):
     elif isinstance(data, dict):
         data = {key:gpu(_data) for key,_data in data.items()}
     elif isinstance(data, torch.Tensor):
-        data = data.contiguous().cuda(non_blocking=True)
+        if gpu_id == None:
+            data = data.contiguous().cuda(non_blocking=True)
+        else:
+            data = data.contiguous().cuda(gpu_id, non_blocking=True)
     return data
 
 
@@ -82,6 +85,28 @@ def to_long(data):
     if torch.is_tensor(data) and data.dtype == torch.int16:
         data = data.long()
     return data
+
+def to_float(data):
+    if isinstance(data, dict):
+        for key in data.keys():
+            data[key] = to_float(data[key])
+    if isinstance(data, list) or isinstance(data, tuple):
+        data = [to_float(x) for x in data]
+    if torch.is_tensor(data):
+        data = data.type(torch.float32)
+    return data
+
+
+def to_int(data):
+    if isinstance(data, dict):
+        for key in data.keys():
+            data[key] = to_int(data[key])
+    if isinstance(data, list) or isinstance(data, tuple):
+        data = [to_int(x) for x in data]
+    if torch.is_tensor(data) and data.dtype == torch.int16:
+        data = data.int()
+    return data
+
 
 class Optimizer(object):
     def __init__(self, params, config, coef=None):

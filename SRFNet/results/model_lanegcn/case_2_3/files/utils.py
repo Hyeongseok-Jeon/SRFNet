@@ -86,6 +86,17 @@ def to_long(data):
         data = data.long()
     return data
 
+def to_float(data):
+    if isinstance(data, dict):
+        for key in data.keys():
+            data[key] = to_float(data[key])
+    if isinstance(data, list) or isinstance(data, tuple):
+        data = [to_float(x) for x in data]
+    if torch.is_tensor(data):
+        data = data.type(torch.float32)
+    return data
+
+
 def to_int(data):
     if isinstance(data, dict):
         for key in data.keys():

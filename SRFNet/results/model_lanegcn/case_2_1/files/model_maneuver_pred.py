@@ -12,10 +12,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR
+from SRFNet.data import ArgoDataset, collate_fn
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -33,7 +33,7 @@ config["save_freq"] = 1.0
 config["epoch"] = 0
 config["horovod"] = True
 config["opt"] = "adam"
-config["num_epochs"] = 50
+config["num_epochs"] = 32
 config["lr"] = [1e-3, 1e-4]
 config["lr_epochs"] = [32]
 config["lr_func"] = StepLR(config["lr"], config["lr_epochs"])
@@ -46,9 +46,9 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
-config["workers"] = 64
+config["batch_size"] = 256
+config["val_batch_size"] = 256
+config["workers"] = 0
 config["val_workers"] = config["workers"]
 
 """Dataset"""
@@ -102,6 +102,7 @@ class maneuver_pred_net(nn.Module):
         self.config = config
 
         self.man_classify_net = ManNet(config)
+        self.softmax = nn.Softmax(dim=0)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -112,14 +113,13 @@ class maneuver_pred_net(nn.Module):
 
         out_raw = self.man_classify_net(cl_cands)
         out = self.out_reform(out_raw, cl_idcs)
-
         return out, target_idcs
 
     def out_reform(self, out_raw, cl_idcs):
         veh_num = len(cl_idcs)
         out_mod = []
         for i in range(veh_num):
-            out_mod.append(out_raw[cl_idcs[i]][:,0])
+            out_mod.append(self.softmax(out_raw[cl_idcs[i]][:,0]))
 
         return out_mod
 
@@ -138,16 +138,19 @@ class ManNet(nn.Module):
                              stride=2,
                              padding=0,
                              dilation=1)
+            act = nn.ReLU()
             convs.append(conv)
+            convs.append(act)
         self.convs = nn.Sequential(*convs).double()
 
         self.output = nn.Linear(channel_list[-1], 1)
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, cl_cands):
         out = self.convs(cl_cands)
         out = torch.squeeze(out)
         out = self.output(out)
-        out = torch.sigmoid(out)
+        # out = self.softmax(out)
 
         return out
 
@@ -208,17 +211,16 @@ class Loss(nn.Module):
         val_idx = []
         pred_idx = []
         for i in range(len(out)):
-            if not (len(gt_mod[i]) == 1 and gt_mod[i][0] == 0):
+            if not (len(gt_mod[i]) == 1):
                 pred_idx.append(i)
                 if len(gt_mod[i]) > 1:
                     pred = out[i].unsqueeze(dim=0)
                     gt = gpu(torch.where(gt_mod[i]==1)[0])
 
-                    self.class_loss(pred, gt)
                     loss_calc_num += 1
                     loss += self.class_loss(pred, gt)
                     val_idx.append(i)
-        return loss, loss_calc_num, val_idx, pred_idx
+        return loss/loss_calc_num, loss_calc_num, val_idx, pred_idx
 
 
 class PostProcess(nn.Module):
@@ -266,24 +268,33 @@ class PostProcess(nn.Module):
         preds = metrics["out"]
         gt_preds = metrics["gt_preds"]
 
-        acc = pred_metrics(preds, gt_preds)
+        [tot_acc, pred_acc] = pred_metrics(preds, gt_preds)
 
         print(
-            "loss %2.4f, accuracy %2.4f %%"
-            % (loss/calc_num, acc)
+            "loss %2.4f, total accuracy %2.4f %%, predicted accuracy %2.4f %%"
+            % (loss/calc_num, tot_acc, pred_acc)
         )
         print()
 
 
 def pred_metrics(preds, gt_preds):
-    tot_num = len(preds)
-    correct_num = 0
-    for i in range(tot_num):
-        pred = np.argmax(preds[i])
-        gt = np.where(gt_preds[i]==1)[0][0]
-        if pred == gt:
-            correct_num += 1
-    return correct_num*100 / tot_num
+    tot_num = 0
+    pred_num = 0
+    correct_num_tot = 0
+    correct_num_pred = 0
+    for i in range(len(preds)):
+        if len(gt_preds[i]) == 1 and gt_preds[i][0] == 1:
+            tot_num += 1
+            correct_num_tot += 1
+        elif len(gt_preds[i]) > 1:
+            tot_num += 1
+            pred_num += 1
+            pred = np.argmax(preds[i])
+            gt = np.where(gt_preds[i] == 1)[0][0]
+            if pred == gt:
+                correct_num_tot += 1
+                correct_num_pred += 1
+    return correct_num_tot*100 / tot_num, correct_num_pred*100 / pred_num
 
 
 def get_model(args):
@@ -292,9 +303,9 @@ def get_model(args):
     opt = Optimizer(params, config)
     loss = Loss(config).cuda()
     post_process = PostProcess(config).cuda()
-
-    config["save_dir"] = os.path.join(
-        config["save_dir"], args.case
-    )
+    if args != 'None':
+        config["save_dir"] = os.path.join(
+            config["save_dir"], args.case
+        )
 
     return config, ArgoDataset, collate_fn, net, loss, post_process, opt

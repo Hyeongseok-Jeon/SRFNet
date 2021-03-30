@@ -46,8 +46,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 128
-config["val_batch_size"] = 128
+config["batch_size"] = 256
+config["val_batch_size"] = 256
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -102,6 +102,7 @@ class maneuver_pred_net(nn.Module):
         self.config = config
 
         self.man_classify_net = ManNet(config)
+        self.softmax = nn.Softmax(dim=0)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
@@ -112,14 +113,13 @@ class maneuver_pred_net(nn.Module):
 
         out_raw = self.man_classify_net(cl_cands)
         out = self.out_reform(out_raw, cl_idcs)
-
         return out, target_idcs
 
     def out_reform(self, out_raw, cl_idcs):
         veh_num = len(cl_idcs)
         out_mod = []
         for i in range(veh_num):
-            out_mod.append(out_raw[cl_idcs[i]][:,0])
+            out_mod.append(self.softmax(out_raw[cl_idcs[i]][:,0]))
 
         return out_mod
 
@@ -144,12 +144,13 @@ class ManNet(nn.Module):
         self.convs = nn.Sequential(*convs).double()
 
         self.output = nn.Linear(channel_list[-1], 1)
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, cl_cands):
         out = self.convs(cl_cands)
         out = torch.squeeze(out)
         out = self.output(out)
-        out = torch.sigmoid(out)
+        # out = self.softmax(out)
 
         return out
 
@@ -267,27 +268,33 @@ class PostProcess(nn.Module):
         preds = metrics["out"]
         gt_preds = metrics["gt_preds"]
 
-        acc = pred_metrics(preds, gt_preds)
+        [tot_acc, pred_acc] = pred_metrics(preds, gt_preds)
 
         print(
-            "loss %2.4f, accuracy %2.4f %%"
-            % (loss/calc_num, acc)
+            "loss %2.4f, total accuracy %2.4f %%, predicted accuracy %2.4f %%"
+            % (loss/calc_num, tot_acc, pred_acc)
         )
         print()
 
 
 def pred_metrics(preds, gt_preds):
-    tot_num = len(preds)
-    correct_num = 0
-    for i in range(tot_num):
-        if len(gt_preds[i]) == 0 and gt_preds[i][0] == 0:
-            tot_num -= 1
-        else:
+    tot_num = 0
+    pred_num = 0
+    correct_num_tot = 0
+    correct_num_pred = 0
+    for i in range(len(preds)):
+        if len(gt_preds[i]) == 1 and gt_preds[i][0] == 1:
+            tot_num += 1
+            correct_num_tot += 1
+        elif len(gt_preds[i]) > 1:
+            tot_num += 1
+            pred_num += 1
             pred = np.argmax(preds[i])
-            gt = np.where(gt_preds[i]==1)[0][0]
+            gt = np.where(gt_preds[i] == 1)[0][0]
             if pred == gt:
-                correct_num += 1
-    return correct_num*100 / tot_num
+                correct_num_tot += 1
+                correct_num_pred += 1
+    return correct_num_tot*100 / tot_num, correct_num_pred*100 / pred_num
 
 
 def get_model(args):
@@ -296,9 +303,9 @@ def get_model(args):
     opt = Optimizer(params, config)
     loss = Loss(config).cuda()
     post_process = PostProcess(config).cuda()
-
-    config["save_dir"] = os.path.join(
-        config["save_dir"], args.case
-    )
+    if args != 'None':
+        config["save_dir"] = os.path.join(
+            config["save_dir"], args.case
+        )
 
     return config, ArgoDataset, collate_fn, net, loss, post_process, opt

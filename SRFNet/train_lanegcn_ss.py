@@ -22,18 +22,13 @@ import sys
 import time
 import shutil
 from importlib import import_module
-from numbers import Number
-
 from tqdm import tqdm
 import torch
-from torch.utils.data import Sampler, DataLoader
+from torch.utils.data import DataLoader
 import horovod.torch as hvd
-from SRFNet.utils import gpu, to_long, Optimizer, StepLR
-
+from SRFNet.utils import gpu
 from torch.utils.data.distributed import DistributedSampler
-
 from SRFNet.utils import Logger, load_pretrain
-
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
@@ -132,7 +127,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )

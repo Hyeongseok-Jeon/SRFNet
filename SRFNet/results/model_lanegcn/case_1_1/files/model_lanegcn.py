@@ -13,9 +13,10 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR
+from utils import gpu, to_long, Optimizer, StepLR, to_float
 
 from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from model_maneuver_pred import get_model as get_manuever_model
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -45,8 +46,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 16
-config["val_batch_size"] = 16
+config["batch_size"] = 32
+config["val_batch_size"] = 32
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -91,6 +92,7 @@ config["GAT_dropout"] = 0.5
 config["GAT_Leakyrelu_alpha"] = 0.2
 config["GAT_num_head"] = config["n_actor"]
 config["SRF_conv_num"] = 4
+config["inter_dist_thres"] = 10
 
 
 ### end of config ###
@@ -126,7 +128,7 @@ class lanegcn(nn.Module):
         '''
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        # actor-map fusion cycle 
+        # actor-map fusion cycle
         nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
@@ -137,6 +139,88 @@ class lanegcn(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
+        rot, orig = gpu(data["rot"]), gpu(data["orig"])
+        # transform prediction to world coordinates
+        for i in range(len(out["reg"])):
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
+                1, 1, 1, -1
+            )
+        return [out]
+
+
+class wrapper_mid(nn.Module):
+    def __init__(self, config, args):
+        super(wrapper_mid, self).__init__()
+        self.config = config
+        _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
+        pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
+        pretrained_dict = pre_trained_weight['state_dict']
+        new_model_dict = maneuver_pred_net.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+        new_model_dict.update(pretrained_dict)
+        maneuver_pred_net.load_state_dict(new_model_dict)
+
+        self.maneu_pred = maneuver_pred_net
+
+        self.actor_net = ActorNet(config)
+        self.map_net = MapNet(config)
+
+        self.a2m = A2M(config)
+        self.m2m = M2M(config)
+        self.m2a = M2A(config)
+        self.a2a = A2A(config)
+
+        self.react_net = ReactNet(config)
+        self.gating_net = GateNet(config)
+        self.pred_net = PredNet(config)
+
+    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+        # construct actor feature
+
+        cl_cands = to_float(gpu(data['cl_cands']))
+        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
+        egos = [actor_idcs[i][0].unsqueeze(dim=0) for i in range(len(actor_idcs))]
+        targets = [actor_idcs[i][1].unsqueeze(dim=0) for i in range(len(actor_idcs))]
+        actor_ctrs = gpu(data["ctrs"])
+        '''
+        actors : N x 3 x 20 (N : number of vehicles in every batches)
+        '''
+
+        actors = self.actor_net(actors)
+
+        # construct map features
+        graph = graph_gather(to_long(gpu(data["graph"])))
+        '''
+        graph['idcs'] : list with length or batch size, graph['idcs'][i]
+        '''
+        nodes, node_idcs, node_ctrs = self.map_net(graph)
+
+        # actor-map fusion cycle
+        nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
+        nodes = self.m2m(nodes, graph)
+        actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
+        actors = self.a2a(actors, actor_idcs, actor_ctrs)
+
+        # maneuver_prediction
+        maneuver_out, target_idx = self.maneu_pred(data)
+        maneuver_target = [to_float(maneuver_out[i]) for i in target_idx]
+        # reaction prediction
+        actors_target = actors[torch.cat(targets)]
+        cl_cands_target = [to_float(cl_cands[i][1]) for i in range(len(cl_cands))]
+        actors_ego = actors[torch.cat(egos)]
+
+        ego_fut_traj = [gpu(data['gt_preds'][i][0]) for i in range(len(data['gt_preds']))]
+        target_cur_pos = [(torch.matmul(gpu(data["ctrs"][i][1]), gpu(data['rot'][i])) + gpu(data['orig'][i]).view(1, 1, 1, -1))[0, 0, 0, :] for i in range(len(data['gt_preds']))]
+        pred_inter = self.react_net(actors_target, actors_ego)
+        gating_fact = self.gating_net(cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target)
+        gated_actors = torch.sum(torch.mul(gating_fact, torch.cat([pred_inter.unsqueeze(dim=1), actors_target.unsqueeze(dim=1)], dim=1)), dim=1)
+        gated_actor_idcs = [torch.tensor(i).unsqueeze(dim=0).cuda() for i in range(len(actor_idcs))]
+        gated_actor_ctrs = [actor_ctrs[i][1:2, :] for i in range(len(actor_ctrs))]
+        # prediction
+        '''
+        actors : N x 128 (N : number of vehicles in every batches)
+        '''
+        out = self.pred_net(gated_actors, gated_actor_idcs, gated_actor_ctrs)
         rot, orig = gpu(data["rot"]), gpu(data["orig"])
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
@@ -180,7 +264,7 @@ class case_2_1(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -196,7 +280,7 @@ class case_2_1(nn.Module):
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist']
+        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -208,13 +292,10 @@ class case_2_1(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
+        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            if i == 0:
-                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
-            else:
-                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long(), :].unsqueeze(dim=1)
+            graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -233,7 +314,7 @@ class case_2_1(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -256,7 +337,7 @@ class case_2_2(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -272,7 +353,7 @@ class case_2_2(nn.Module):
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist']
+        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -284,13 +365,10 @@ class case_2_2(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
+        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            if i == 0:
-                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
-            else:
-                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long(), :].unsqueeze(dim=1)
+            graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -309,7 +387,7 @@ class case_2_2(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -329,7 +407,7 @@ class case_2_3(nn.Module):
         self.map_net = MapNet(config)
 
         self.fusion_net = FusionNet(config)
-        self.inter_pred_net = PredNet(config)
+        self.interaction_net = PredNet(config)
 
         self.pred_net = PredNet(config)
 
@@ -345,7 +423,7 @@ class case_2_3(nn.Module):
         graph = graph_gather(to_long(gpu(data["graph"])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        nearest_ctrs_hist = data['nearest_ctrs_hist']
+        nearest_ctrs_hist = data['nearest_ctrs_hist'].copy()
         for i in range(len(nearest_ctrs_hist)):
             if i == 0:
                 nearest_ctrs_hist[i] = nearest_ctrs_hist[i]
@@ -357,13 +435,10 @@ class case_2_3(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         graph_adjs = []
+        idx = [0, 4, 9, 14, 19]
         for i in range(5):
-            if i == 0:
-                element = nodes[nearest_ctrs_cat[:, i].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
-            else:
-                element = nodes[nearest_ctrs_cat[:, 5 * i - 1].long()].unsqueeze(dim=1)
-                graph_adjs.append(element)
+            element = nodes[nearest_ctrs_cat[:, idx[i]].long()].unsqueeze(dim=1)
+            graph_adjs.append(element)
         graph_adjs = torch.cat(graph_adjs, dim=1)
 
         # actor-map fusion cycle
@@ -382,7 +457,7 @@ class case_2_3(nn.Module):
                 1, 1, 1, -1
             )
 
-        out_sur_interact = self.inter_pred_net(interaction_mod, actor_idcs, actor_ctrs)
+        out_sur_interact = self.interaction_net(interaction_mod, actor_idcs, actor_ctrs)
         for i in range(len(out_sur_interact["reg"])):
             out_sur_interact["reg"][i] = torch.matmul(out_sur_interact["reg"][i], rot[i]) + torch.zeros_like(orig[i]).view(
                 1, 1, 1, -1
@@ -515,6 +590,133 @@ class ActorNet(nn.Module):
 
         out = self.output(out)[:, :, -1]
         return out
+
+
+class ReactNet(nn.Module):
+    def __init__(self, config):
+        super(ReactNet, self).__init__()
+        self.config = config
+        self.relu = nn.ReLU()
+
+        n_out = [256, 256, 256, 256]
+        blocks = [nn.Linear, nn.Linear, nn.Linear]
+
+        groups = []
+        for i in range(len(blocks)):
+            group = blocks[i](n_out[i], n_out[i + 1])
+            groups.append(group)
+
+        self.inter_pred = nn.ModuleList(groups)
+
+        in_channel = [4, 8, 16, 32, 64]
+        out_channel = [8, 16, 32, 64, 128]
+        kernel_size = [4, 4, 4, 2, 2]
+        stride = [4, 4, 4, 2, 2]
+        padding = 0
+        dilation = 1
+        conv1d = []
+        for i in range(len(in_channel)):
+            net = nn.Conv1d(in_channels=in_channel[i],
+                            out_channels=out_channel[i],
+                            kernel_size=kernel_size[i],
+                            stride=stride[i],
+                            padding=padding,
+                            dilation=dilation)
+            conv1d.append(net)
+            conv1d.append(nn.ReLU6())
+        self.conv1d = nn.Sequential(*conv1d)
+        self.conv1d_out = nn.Linear(128, 128)
+
+    def forward(self, actors_target, actors_ego):
+        cat = torch.cat([actors_target, actors_ego], dim=1)
+        cat_tot = [cat.unsqueeze(dim=1)]
+        for i in range(len(self.inter_pred)):
+            cat = self.inter_pred[i](cat)
+            cat = self.relu(cat)
+            cat_tot.append(cat.unsqueeze(dim=1))
+        cat_tot = torch.cat(cat_tot, dim=1)
+
+        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze())
+
+        return pred_inter
+
+
+class GateNet(nn.Module):
+    def __init__(self, config):
+        super(GateNet, self).__init__()
+        self.config = config
+        self.relu = nn.ReLU()
+
+        in_channel = [3, 9, 27, 81]
+        out_channel = [9, 27, 81, 128]
+        kernel_size = [2, 2, 2, 2, 2]
+        stride = [2, 2, 2, 2, 2]
+        padding = 0
+        dilation = 1
+
+        conv1d = []
+        for i in range(len(in_channel)):
+            net = nn.Conv1d(in_channels=in_channel[i],
+                            out_channels=out_channel[i],
+                            kernel_size=kernel_size[i],
+                            stride=stride[i],
+                            padding=padding,
+                            dilation=dilation)
+            conv1d.append(net)
+            if i < len(in_channel):
+                conv1d.append(nn.ReLU6())
+            else:
+                conv1d.append(nn.Sigmoid())
+        self.gate = nn.Sequential(*conv1d)
+
+    def forward(self, cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target):
+        batch_num = len(cl_cands_target)
+        gating = []
+        for i in range(batch_num):
+            target_cl = cl_cands_target[i]
+            target_cl = self.cl_filter(target_cl)
+            ego_fut = ego_fut_traj[i]
+            dist_mat = [torch.cdist(ego_fut, target_cl[j]) for j in range(len(target_cl))]
+            dist_to_target_cl = [torch.min(dist_mat[j]) for j in range(len(target_cl))]
+            if min(dist_to_target_cl) > config["inter_dist_thres"]:
+                gating_tmp = torch.cat([torch.zeros(1, 128), torch.ones(1, 128)], dim=0).unsqueeze(dim=0)
+                gating_tmp = gating_tmp.cuda()
+                gating.append(gating_tmp)
+            else:
+                dist_to = torch.cat([torch.min(dist_mat[j], dim=1)[0].unsqueeze(dim=0).unsqueeze(dim=0) for j in range(len(target_cl))], dim=0)
+                delta_x = torch.repeat_interleave((ego_fut[:, 0] - target_cur_pos[i][0]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                delta_y = torch.repeat_interleave((ego_fut[:, 1] - target_cur_pos[i][1]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                gating_in = torch.cat([delta_x, delta_y, dist_to], dim=1)
+                gating_out = self.gate(gating_in).squeeze(dim=-1)
+                gating_tmp = torch.cat([gating_out[j:j + 1, :] * maneuver_target[i][j] for j in range(gating_out.shape[0])], dim=0)
+                gating_tmp = torch.sum(gating_tmp, dim=0).unsqueeze(dim=0)
+                gating_tmp = torch.cat([gating_tmp, torch.ones_like(gating_tmp) - gating_tmp]).unsqueeze(dim=0)
+                gating.append(gating_tmp)
+        gating = torch.cat(gating, dim=0)
+        return gating
+
+    def cl_filter(self, target_cl):
+        val_idx = []
+        for i in range(len(target_cl)):
+            if i == 0:
+                val_idx.append(i)
+            else:
+                val_check = []
+                for j in val_idx:
+                    val_len = min(target_cl[i].shape[0], target_cl[j].shape[0], 50)
+                    val_check.append((target_cl[i][:val_len, :] == target_cl[j][:val_len, :]).all().unsqueeze(dim=0))
+                val_check = torch.cat(val_check, dim=0)
+                if val_check.any():
+                    pass
+                else:
+                    val_idx.append(i)
+        return [target_cl[i] for i in val_idx]
+
+
+'''         
+late fusion 방식일 경우에는 delta x, y를 prediction 결과에 대해서 진행
+mid fusion 방식일 경우에는 delta x, y에 대해서 cur_pos에 대해서 진행
+'''
 
 
 class MapNet(nn.Module):
@@ -1159,13 +1361,19 @@ class PredLoss(nn.Module):
 
 
 class Loss(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, args):
         super(Loss, self).__init__()
         self.config = config
         self.pred_loss = PredLoss(config)
+        self.args = args
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
+        if self.args.case == 'wrapper_mid_fusion':
+            gt_preds = [gpu(data["gt_preds"])[i][1:2, :, :] for i in range(len(data["gt_preds"]))]
+            has_preds = [gpu(data["has_preds"])[i][1:2, :] for i in range(len(data["has_preds"]))]
+            loss_out = self.pred_loss(out, gt_preds, has_preds)
+        else:
+            loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
         loss_out["loss"] = loss_out["cls_loss"] / (
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
@@ -1287,34 +1495,53 @@ def pred_metrics(preds, gt_preds, has_preds):
 def get_model(args):
     if args.case == 'case_1_1':
         net = case_1_1(config, args)
-        params = net.parameters()
-        opt = [Optimizer(params, config)]
-        loss = [Loss(config).cuda()]
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
+        loss = [Loss(config, args).cuda()]
+        params = [w_params]
+    elif args.case == 'wrapper_mid_fusion':
+        net = wrapper_mid(config, args)
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
+        loss = [Loss(config, args).cuda()]
+        params = [w_params]
     elif args.case == 'case_2_1':
         net = case_2_1(config, args)
-        params = net.parameters()
-        opt = [Optimizer(params, config)]
-        loss = [Loss(config).cuda()]
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
+        loss = [Loss(config, args).cuda()]
+        params = [params1]
     elif args.case == 'case_2_2':
         net = case_2_2(config, args)
-        params1 = list(net.actor_net.parameters()) + list(net.pred_net.parameters())
-        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        w_params = [(name, param) for name, param in net.named_parameters() if ('actor_net' in name or 'pred_net' in name)]
+        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
+        params1 = [p for n, p in w_params]
+        params2 = [p for n, p in theta_params]
         opt = [Optimizer(params1, config), Optimizer(params2, config)]
-        loss = [Loss(config).cuda(), L1loss(config).cuda()]
+        loss = [Loss(config, args).cuda(), L1loss(config, args).cuda()]
+        params = [w_params, theta_params]
     elif args.case == 'case_2_3':
         net = case_2_3(config, args)
-        params2 = list(net.map_net.parameters()) + list(net.fusion_net.parameters()) + list(net.inter_pred_net.parameters())
+        theta_params = [(name, param) for name, param in net.named_parameters() if ('map_net' in name or 'fusion_net' in name or 'interaction_net' in name)]
+        params2 = [p for n, p in theta_params]
         opt = [None, Optimizer(params2, config)]
-        loss = [Loss(config).cuda(), L1loss(config).cuda()]
+        loss = [Loss(config, args).cuda(), L1loss(config, args).cuda()]
+        params = [None, theta_params]
     else:
         print('model is not specified. therefore the lanegcn is loaded')
         net = lanegcn(config, args)
-        params = net.parameters()
-        opt = [Optimizer(params, config)]
-        loss = [Loss(config).cuda()]
+        w_params = [(name, param) for name, param in net.named_parameters()]
+        params1 = [p for n, p in w_params]
+        opt = [Optimizer(params1, config)]
+        loss = [Loss(config, args).cuda()]
+        params = [w_params]
+
     net = net.cuda()
     post_process = PostProcess(config).cuda()
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
     )
-    return config, ArgoDataset, collate_fn, net, loss, post_process, opt
+    return config, ArgoDataset, collate_fn, net, loss, post_process, opt, params

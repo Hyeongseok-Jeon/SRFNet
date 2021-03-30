@@ -69,7 +69,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    config, Dataset, collate_fn, net, loss, post_process, opt, params = model.get_model(args)
 
     pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
@@ -82,7 +82,7 @@ def main():
         for i in range(len(opt)):
             if opt[i] != None:
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
+                    opt[i].opt, named_parameters=params[i]
                 )
 
     if args.resume or args.weight:
@@ -132,20 +132,20 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    # dataset = Dataset(config["train_split"], config, train=True)
-    # train_sampler = DistributedSampler(
-    #     dataset, num_replicas=hvd.size(), rank=hvd.rank()
-    # )
-    # train_loader = DataLoader(
-    #     dataset,
-    #     batch_size=config["batch_size"],
-    #     num_workers=config["workers"],
-    #     sampler=train_sampler,
-    #     collate_fn=collate_fn,
-    #     pin_memory=True,
-    #     worker_init_fn=worker_init_fn,
-    #     drop_last=True,
-    # )
+    dataset = Dataset(config["train_split"], config, train=False)
+    train_sampler = DistributedSampler(
+        dataset, num_replicas=hvd.size(), rank=hvd.rank()
+    )
+    train_loader = DataLoader(
+        dataset,
+        batch_size=config["batch_size"],
+        num_workers=config["workers"],
+        sampler=train_sampler,
+        collate_fn=collate_fn,
+        pin_memory=True,
+        worker_init_fn=worker_init_fn,
+        drop_last=True,
+    )
 
     # Data loader for evaluation
     dataset = Dataset(config["val_split"], config, train=False)
@@ -168,7 +168,7 @@ def main():
     epoch = config["epoch"]
     remaining_epochs = int(np.ceil(config["num_epochs"] - epoch))
     for i in range(remaining_epochs):
-        train(epoch + i, config, val_loader, net, loss, post_process, opt, val_loader)
+        train(epoch + i, config, train_loader, net, loss, post_process, opt, val_loader)
 
 
 def worker_init_fn(pid):
@@ -194,7 +194,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
-        # data = dict(data)
+        data = dict(data)
         data_copy = []
         for j in range(len(opt)):
             data_copy.append(data.copy())
@@ -208,7 +208,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             opt[0].zero_grad()
             loss_out0["loss"].backward()
             lr0 = opt[0].step(epoch)
-            losses.append(loss_out0)
+        losses.append(loss_out0)
 
         if len(opt) > 1:
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
@@ -237,7 +237,10 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             dt = time.time() - start_time
             metrics = sync(metrics)
             if hvd.rank() == 0:
-                post_process.display(metrics, dt, epoch, lr0)
+                if opt[0] != None:
+                    post_process.display(metrics, dt, epoch, lr0)
+                else:
+                    post_process.display(metrics, dt, epoch, lr1)
             start_time = time.time()
             metrics = dict()
 

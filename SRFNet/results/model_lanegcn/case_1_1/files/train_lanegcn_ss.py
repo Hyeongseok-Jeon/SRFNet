@@ -3,6 +3,7 @@
 # limitations under the License.
 import sys
 import os
+
 sys.path.extend(['/home/jhs/Desktop/SRFNet'])
 sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
 sys.path.extend(['/home/user/Desktop/SRFNet'])
@@ -29,13 +30,11 @@ from torch.utils.data import Sampler, DataLoader
 import horovod.torch as hvd
 from SRFNet.utils import gpu, to_long, Optimizer, StepLR
 
-
 from torch.utils.data.distributed import DistributedSampler
 
 from SRFNet.utils import Logger, load_pretrain
 
 from mpi4py import MPI
-
 
 comm = MPI.COMM_WORLD
 hvd.init()
@@ -43,7 +42,6 @@ torch.cuda.set_device(hvd.local_rank())
 
 root_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, root_path)
-
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
@@ -71,7 +69,7 @@ def main():
     # Import all settings for experiment.
     args = parser.parse_args()
     model = import_module(args.model)
-    config, Dataset, collate_fn, net, loss, post_process, opt = model.get_model(args)
+    config, Dataset, collate_fn, net, loss, post_process, opt, params = model.get_model(args)
 
     pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
@@ -80,12 +78,11 @@ def main():
     new_model_dict.update(pretrained_dict)
     net.load_state_dict(new_model_dict)
 
-
     if config["horovod"]:
         for i in range(len(opt)):
             if opt[i] != None:
                 opt[i].opt = hvd.DistributedOptimizer(
-                    opt[i].opt, named_parameters=net.named_parameters()
+                    opt[i].opt, named_parameters=params[i]
                 )
 
     if args.resume or args.weight:
@@ -135,7 +132,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
@@ -200,25 +197,25 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         data = dict(data)
         data_copy = []
         for j in range(len(opt)):
-            data_copy.append(data)
+            data_copy.append(data.copy())
         outputs = []
         losses = []
-        
+
         output0 = net(data_copy[0])
         outputs.append(output0[0])
         loss_out0 = loss[0](outputs[0], data_copy[0])
         if opt[0] != None:
-          opt[0].zero_grad()
-          loss_out0["loss"].backward()
-          lr0 = opt[0].step(epoch)
-          losses.append(loss_out0)
+            opt[0].zero_grad()
+            loss_out0["loss"].backward()
+            lr0 = opt[0].step(epoch)
+        losses.append(loss_out0)
 
-        if len(opt)>1:
+        if len(opt) > 1:
             gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
             data_copy[1]['gt_new'] = gt_new
             output1 = net(data_copy[1])
             outputs.append(output1[1])
-            loss_out1 = loss[1](outputs[1], data_copy[1],  losses[0])
+            loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
             opt[1].zero_grad()
             loss_out1["loss"].backward()
             lr1 = opt[1].step(epoch)
@@ -232,7 +229,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
-            num_iters % save_iters == 0 or epoch >= config["num_epochs"]
+                num_iters % save_iters == 0 or epoch >= config["num_epochs"]
         ):
             save_ckpt(net, opt, config["save_dir"], epoch)
 
@@ -240,7 +237,10 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             dt = time.time() - start_time
             metrics = sync(metrics)
             if hvd.rank() == 0:
-                post_process.display(metrics, dt, epoch, lr0)
+                if opt[0] != None:
+                    post_process.display(metrics, dt, epoch, lr0)
+                else:
+                    post_process.display(metrics, dt, epoch, lr1)
             start_time = time.time()
             metrics = dict()
 
@@ -315,6 +315,7 @@ def save_ckpt(net, opt, save_dir, epoch):
                 {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
                 os.path.join(save_dir, save_name),
             )
+
 
 def sync(data):
     data_list = comm.allgather(data)
