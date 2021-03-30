@@ -1513,7 +1513,7 @@ def get_model(args):
         opt = [Optimizer(params1, config)]
         loss = [Loss(config, args).cuda()]
         params = [w_params]
-    elif 'wrapper_mid_fusion_transfer' in args.case:
+    elif 'wrapper_mid_fusion' in args.case:
         net = wrapper_mid(config, args)
         w_params = [(name, param) for name, param in net.named_parameters()]
         params1 = [p for n, p in w_params]
