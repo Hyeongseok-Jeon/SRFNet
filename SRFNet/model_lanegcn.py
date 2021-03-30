@@ -94,6 +94,7 @@ config["GAT_num_head"] = config["n_actor"]
 config["SRF_conv_num"] = 4
 config["inter_dist_thres"] = 10
 
+
 ### end of config ###
 
 class lanegcn(nn.Module):
@@ -158,7 +159,7 @@ class wrapper_mid(nn.Module):
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
         new_model_dict.update(pretrained_dict)
         maneuver_pred_net.load_state_dict(new_model_dict)
-        self.maneu_pred = maneuver_pred_net
+        self.maneu_pred = maneuver_pred_net.cuda()
 
         self.actor_net = ActorNet(config).cuda()
         self.map_net = MapNet(config).cuda()
@@ -168,8 +169,8 @@ class wrapper_mid(nn.Module):
         self.m2a = M2A(config).cuda()
         self.a2a = A2A(config).cuda()
 
-        self.react_net = ReactNet(config)
-        self.gating_net = GateNet(config)
+        self.react_net = ReactNet(config).cuda()
+        self.gating_net = GateNet(config).cuda()
         self.pred_net = PredNet(config).cuda()
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
@@ -208,9 +209,11 @@ class wrapper_mid(nn.Module):
         actors_ego = actors[torch.cat(egos)]
 
         ego_fut_traj = [gpu(data['gt_preds'][i][0]) for i in range(len(data['gt_preds']))]
-        target_cur_pos =[(torch.matmul(gpu(data["ctrs"][i][1]), gpu(data['rot'][i])) + gpu(data['orig'][i]).view(1, 1, 1, -1))[0,0,0,:] for i in range(len(data['gt_preds']))]
+        target_cur_pos = [(torch.matmul(gpu(data["ctrs"][i][1]), gpu(data['rot'][i])) + gpu(data['orig'][i]).view(1, 1, 1, -1))[0, 0, 0, :] for i in range(len(data['gt_preds']))]
+        rot = gpu(data['rot'])
+        orig = gpu(data['orig'])
         pred_inter = self.react_net(actors_target, actors_ego)
-        gating_fact = self.gating_net(cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target)
+        gating_fact = gating_net(cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target, rot, orig)
         # prediction
         '''
         actors : N x 128 (N : number of vehicles in every batches)
@@ -670,31 +673,56 @@ class GateNet(nn.Module):
                 gating_tmp = torch.cat([torch.zeros(1, 128), torch.ones(1, 128)], dim=0).unsqueeze(dim=0)
                 gating.append(gating_tmp)
             else:
-                dist_to = torch.cat([torch.min(dist_mat[j],dim=1)[0].unsqueeze(dim=0).unsqueeze(dim=0) for j in range(len(target_cl))],dim=0)
-                delta_x = torch.repeat_interleave((ego_fut[:,0] - target_cur_pos[i][0]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
-                delta_y = torch.repeat_interleave((ego_fut[:,1] - target_cur_pos[i][1]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                dist_to = torch.cat([torch.min(dist_mat[j], dim=1)[0].unsqueeze(dim=0).unsqueeze(dim=0) for j in range(len(target_cl))], dim=0)
+                delta_x = torch.repeat_interleave((ego_fut[:, 0] - target_cur_pos[i][0]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                delta_y = torch.repeat_interleave((ego_fut[:, 1] - target_cur_pos[i][1]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
                 gating_in = torch.cat([delta_x, delta_y, dist_to], dim=1)
                 gating_out = self.gate(gating_in).squeeze()
-                gating_tmp = torch.cat([gating_out[j:j+1,:] * maneuver_target[i][j] for j in range(gating_out.shape[0])], dim=0)
+                gating_tmp = torch.cat([gating_out[j:j + 1, :] * maneuver_target[i][j] for j in range(gating_out.shape[0])], dim=0)
                 gating_tmp = torch.sum(gating_tmp, dim=0).unsqueeze(dim=0)
-                gating_tmp = torch.cat([gating_tmp, torch.ones_like(gating_tmp)-gating_tmp]).unsqueeze(dim=0)
+                gating_tmp = torch.cat([gating_tmp, torch.ones_like(gating_tmp) - gating_tmp]).unsqueeze(dim=0)
+                gating.append(gating_tmp)
+        gating = torch.cat(gating, dim=0)
+        return gating
+
+    # def cl_filter(self, target_cl):
+    #     cl_mask = np.zeros(shape=(50, 4))
+    #
+    #     for k in range(len(target_cl)):
+    #         cl_mask_tmp = cl_mask.copy()
+    #         cl_rots = np.matmul(data['rot'], (cl_cands[j][k] - data['orig'].reshape(-1, 2)).T).T + data['orig'].reshape(-1, 2)
+    #         cl_mods = cl_rots[1:] - cl_rots[:-1]
+    #         cl_mask_tmp[1:cl_rots.shape[0], 0] = cl_mods[:min(cl_rots.shape[0] - 1, 49), 0]
+    #         cl_mask_tmp[1:cl_rots.shape[0], 1] = cl_mods[:min(cl_rots.shape[0] - 1, 49), 1]
+    #         idxs = [-1, -1]
+    #         for l in range(min(cl_rots.shape[0], 50)):
+    #             idxs[0] = idxs[1]
+    #             idxs[1] = np.argmin(np.linalg.norm(traj_valid - cl_rots[l, :], axis=1))
+    #             if idxs[0] == idxs[1] and idxs[0] == valid_num - 1:
+    #                 cl_mask_tmp[l, 3] = 0
+    #                 cl_mask_tmp[l, 2] = 0
+    #             else:
+    #                 cl_mask_tmp[l, 3] = 1
+    #                 cl_mask_tmp[l, 2] = np.min(np.linalg.norm(traj_valid - cl_rots[l, :], axis=1))
+    #         cl_mask_tmp = np.expand_dims(cl_mask_tmp, axis=0)
+    #         if k == 0:
+    #             cl_global.append(cl_cands[j][k])
+    #             cl_veh.append(cl_mask_tmp)
+    #         else:
+    #             val_check = [cl_mask_tmp == cl_veh[i] for i in range(len(cl_veh))]
+    #             tot_check = [val_check[i].all() for i in range(len(val_check))]
+    #             if np.asarray(tot_check).any():
+    #                 pass
+    #             else:
+    #                 cl_global.append(cl_cands[j][k])
+    #                 cl_veh.append(cl_mask_tmp)
+    #     gt_mask = np.zeros(len(cl_global))
+    #     dist_to_cl_fut = []
+
 '''         
 late fusion 방식일 경우에는 delta x, y를 prediction 결과에 대해서 진행
 mid fusion 방식일 경우에는 delta x, y에 대해서 cur_pos에 대해서 진행
 '''
-
-
-        cat = torch.cat([actors_target, actors_ego], dim=1)
-        cat_tot = [cat.unsqueeze(dim=1)]
-        for i in range(len(self.inter_pred)):
-            cat = self.inter_pred[i](cat)
-            cat = self.relu(cat)
-            cat_tot.append(cat.unsqueeze(dim=1))
-        cat_tot = torch.cat(cat_tot, dim=1)
-
-        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze())
-
-        return pred_inter
 
 
 class MapNet(nn.Module):
