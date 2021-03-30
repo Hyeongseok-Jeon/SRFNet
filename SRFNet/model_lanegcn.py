@@ -174,7 +174,7 @@ class wrapper_mid(nn.Module):
             self.react_net = ReactNet(config)
             self.gating_net = GateNet(config)
             self.pred_net = PredNet(config)
-        elif args.case == 'wrapper_mid_fusion_transfer':
+        elif 'wrapper_mid_fusion_transfer' in args.case:
             self.actor_net = ActorNet(config).eval()
             self.map_net = MapNet(config).eval()
 
