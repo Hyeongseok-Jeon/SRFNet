@@ -160,7 +160,7 @@ class wrapper_mid(nn.Module):
         new_model_dict.update(pretrained_dict)
         maneuver_pred_net.load_state_dict(new_model_dict)
 
-        self.maneu_pred = maneuver_pred_net
+        self.maneu_pred = maneuver_pred_net.eval()
 
         self.actor_net = ActorNet(config)
         self.map_net = MapNet(config)
