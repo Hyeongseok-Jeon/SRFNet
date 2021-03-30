@@ -92,7 +92,7 @@ config["GAT_dropout"] = 0.5
 config["GAT_Leakyrelu_alpha"] = 0.2
 config["GAT_num_head"] = config["n_actor"]
 config["SRF_conv_num"] = 4
-
+config["inter_dist_thres"] = 10
 
 ### end of config ###
 
@@ -176,7 +176,6 @@ class wrapper_mid(nn.Module):
         # construct actor feature
 
         cl_cands = gpu(data['cl_cands'])
-        cl_cands_mod = data['cl_cands_mod']
         actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
         egos = [actor_idcs[i][0].unsqueeze(dim=0) for i in range(len(actor_idcs))]
         targets = [actor_idcs[i][1].unsqueeze(dim=0) for i in range(len(actor_idcs))]
@@ -200,13 +199,18 @@ class wrapper_mid(nn.Module):
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
 
+        # maneuver_prediction
+        maneuver_out, target_idx = self.maneu_pred(data)
+        maneuver_target = [maneuver_out[i] for i in target_idx]
         # reaction prediction
         actors_target = actors[torch.cat(targets)]
         cl_cands_target = [cl_cands[i][1] for i in range(len(cl_cands))]
         actors_ego = actors[torch.cat(egos)]
-        cl_cands_ego = [cl_cands[i][0] for i in range(len(cl_cands))]
 
+        ego_fut_traj = [gpu(data['gt_preds'][i][0]) for i in range(len(data['gt_preds']))]
+        target_cur_pos =[(torch.matmul(gpu(data["ctrs"][i][1]), gpu(data['rot'][i])) + gpu(data['orig'][i]).view(1, 1, 1, -1))[0,0,0,:] for i in range(len(data['gt_preds']))]
         pred_inter = self.react_net(actors_target, actors_ego)
+        gating_fact = self.gating_net(cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target)
         # prediction
         '''
         actors : N x 128 (N : number of vehicles in every batches)
@@ -632,16 +636,13 @@ class GateNet(nn.Module):
         self.config = config
         self.relu = nn.ReLU()
 
-        n_out = [256, 256, 256, 256]
-        blocks = [nn.Linear, nn.Linear, nn.Linear]
-        self.inter_pred = [blocks[i](n_out[i], n_out[i + 1]).cuda() for i in range(len(blocks))]
-
-        in_channel = [4, 8, 16, 32, 64]
-        out_channel = [8, 16, 32, 64, 128]
-        kernel_size = [4, 4, 4, 2, 2]
-        stride = [4, 4, 4, 2, 2]
+        in_channel = [3, 9, 27, 81]
+        out_channel = [9, 27, 81, 128]
+        kernel_size = [2, 2, 2, 2, 2]
+        stride = [2, 2, 2, 2, 2]
         padding = 0
         dilation = 1
+
         conv1d = []
         for i in range(len(in_channel)):
             net = nn.Conv1d(in_channels=in_channel[i],
@@ -651,11 +652,38 @@ class GateNet(nn.Module):
                             padding=padding,
                             dilation=dilation)
             conv1d.append(net)
-            conv1d.append(nn.ReLU6())
-        self.conv1d = nn.Sequential(*conv1d).cuda()
-        self.conv1d_out = nn.Linear(128, 128).cuda()
+            if i < len(in_channel):
+                conv1d.append(nn.ReLU6())
+            else:
+                conv1d.append(nn.Sigmoid())
+        self.gate = nn.Sequential(*conv1d).double().cuda()
 
-    def forward(self, actors_target, actors_ego):
+    def forward(self, cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target):
+        batch_num = len(cl_cands_target)
+        gating = []
+        for i in range(batch_num):
+            target_cl = cl_cands_target[i]
+            ego_fut = ego_fut_traj[i]
+            dist_mat = [torch.cdist(ego_fut.double(), target_cl[j]) for j in range(len(target_cl))]
+            dist_to_target_cl = [torch.min(dist_mat[j]) for j in range(len(target_cl))]
+            if min(dist_to_target_cl) > config["inter_dist_thres"]:
+                gating_tmp = torch.cat([torch.zeros(1, 128), torch.ones(1, 128)], dim=0).unsqueeze(dim=0)
+                gating.append(gating_tmp)
+            else:
+                dist_to = torch.cat([torch.min(dist_mat[j],dim=1)[0].unsqueeze(dim=0).unsqueeze(dim=0) for j in range(len(target_cl))],dim=0)
+                delta_x = torch.repeat_interleave((ego_fut[:,0] - target_cur_pos[i][0]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                delta_y = torch.repeat_interleave((ego_fut[:,1] - target_cur_pos[i][1]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                gating_in = torch.cat([delta_x, delta_y, dist_to], dim=1)
+                gating_out = self.gate(gating_in).squeeze()
+                gating_tmp = torch.cat([gating_out[j:j+1,:] * maneuver_target[i][j] for j in range(gating_out.shape[0])], dim=0)
+                gating_tmp = torch.sum(gating_tmp, dim=0).unsqueeze(dim=0)
+                gating_tmp = torch.cat([gating_tmp, torch.ones_like(gating_tmp)-gating_tmp]).unsqueeze(dim=0)
+'''         
+late fusion 방식일 경우에는 delta x, y를 prediction 결과에 대해서 진행
+mid fusion 방식일 경우에는 delta x, y에 대해서 cur_pos에 대해서 진행
+'''
+
+
         cat = torch.cat([actors_target, actors_ego], dim=1)
         cat_tot = [cat.unsqueeze(dim=1)]
         for i in range(len(self.inter_pred)):
