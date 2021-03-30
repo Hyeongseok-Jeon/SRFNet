@@ -174,7 +174,7 @@ class wrapper_mid(nn.Module):
             self.react_net = ReactNet(config)
             self.gating_net = GateNet(config)
             self.pred_net = PredNet(config)
-        elif 'wrapper_mid_fusion_transfer' in args.case:
+        elif args.case == 'wrapper_mid_fusion_transfer':
             self.actor_net = ActorNet(config).eval()
             self.map_net = MapNet(config).eval()
 
@@ -1513,7 +1513,7 @@ def get_model(args):
         opt = [Optimizer(params1, config)]
         loss = [Loss(config, args).cuda()]
         params = [w_params]
-    elif args.case == 'wrapper_mid_fusion':
+    elif 'wrapper_mid_fusion_transfer' in args.case:
         net = wrapper_mid(config, args)
         w_params = [(name, param) for name, param in net.named_parameters()]
         params1 = [p for n, p in w_params]
