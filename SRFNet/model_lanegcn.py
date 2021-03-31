@@ -154,7 +154,7 @@ class wrapper_mid(nn.Module):
         self.config = config
         _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
 
-        if 'maneuver' in args.transger:
+        if 'maneuver' in args.transfer:
             pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
             pretrained_dict = pre_trained_weight['state_dict']
             new_model_dict = maneuver_pred_net.state_dict()
