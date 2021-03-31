@@ -175,7 +175,6 @@ def worker_init_fn(pid):
 
 def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=None):
     train_loader.sampler.set_epoch(int(epoch))
-    net.train()
 
     num_batches = len(train_loader)
     epoch_per_batch = 1.0 / num_batches
@@ -248,8 +247,6 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
 
 def val(config, data_loader, net, loss, post_process, epoch):
-    net.eval()
-
     start_time = time.time()
     metrics = dict()
     for i, data in enumerate(data_loader):
@@ -282,7 +279,6 @@ def val(config, data_loader, net, loss, post_process, epoch):
     metrics = sync(metrics)
     if hvd.rank() == 0:
         post_process.display(metrics, dt, epoch)
-    net.train()
 
 
 def save_ckpt(net, opt, save_dir, epoch):
