@@ -50,7 +50,11 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="wrapper_mid_fusion_transfer", type=str
+    "--case", default="wrapper_mid_fusion", type=str
+)
+
+parser.add_argument(
+    "--transfer", default=['lanegcn', 'maneuver'], type=list
 )
 
 
@@ -66,12 +70,13 @@ def main():
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt, params = model.get_model(args)
 
-    pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
-    pretrained_dict = pre_trained_weight['state_dict']
-    new_model_dict = net.state_dict()
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
-    new_model_dict.update(pretrained_dict)
-    net.load_state_dict(new_model_dict)
+    if 'lanegcn' in args.transfer:
+        pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
+        pretrained_dict = pre_trained_weight['state_dict']
+        new_model_dict = net.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+        new_model_dict.update(pretrained_dict)
+        net.load_state_dict(new_model_dict)
 
     if config["horovod"]:
         for i in range(len(opt)):

@@ -153,14 +153,18 @@ class wrapper_mid(nn.Module):
         super(wrapper_mid, self).__init__()
         self.config = config
         _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
-        pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
-        pretrained_dict = pre_trained_weight['state_dict']
-        new_model_dict = maneuver_pred_net.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
-        new_model_dict.update(pretrained_dict)
-        maneuver_pred_net.load_state_dict(new_model_dict)
 
-        self.maneu_pred = maneuver_pred_net.eval()
+        if 'maneuver' in args.transger:
+            pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
+            pretrained_dict = pre_trained_weight['state_dict']
+            new_model_dict = maneuver_pred_net.state_dict()
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+            new_model_dict.update(pretrained_dict)
+            maneuver_pred_net.load_state_dict(new_model_dict)
+
+            self.maneu_pred = maneuver_pred_net.eval()
+        else:
+            self.maneu_pred = maneuver_pred_net
 
         if args.case == 'wrapper_mid_fusion':
             self.actor_net = ActorNet(config)
