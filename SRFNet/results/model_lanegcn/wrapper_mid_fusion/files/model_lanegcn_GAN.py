@@ -110,11 +110,11 @@ class lanegcn_vanilla_gan(nn.Module):
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
         new_model_dict.update(pretrained_dict)
         maneuver_pred_net.load_state_dict(new_model_dict)
-        self.maneu_pred = maneuver_pred_net
+        self.maneu_pred = maneuver_pred_net.cuda()
 
-        self.encoder = EncodeNet(config, args)
-        self.ego_encoder = EgoEncodeNet(config)
-        self.generator = GenerateNet(config)
+        self.encoder = EncodeNet(config, args).cuda()
+        self.ego_encoder = EgoEncodeNet(config).cuda()
+        self.generator = GenerateNet(config).cuda()
         self.discriminator = DiscriminateNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
@@ -164,7 +164,7 @@ class lanegcn_vanilla_gan(nn.Module):
         dis_real = self.discriminator(tot_trajectory_real)
         dis_fake = self.discriminator(tot_trajectory_fake)
 
-        return [dis_real, dis_fake, target_fut_traj, tot_trajectory_fake]
+        return [dis_real, dis_fake]
 
 
 def feat_to_global(targets, rot, orig, ctrs):
@@ -246,8 +246,6 @@ class DiscriminateNet(nn.Module):
         super(DiscriminateNet, self).__init__()
         self.config = config
         self.relu6 = nn.ReLU6()
-        self.sigmoid = nn.Sigmoid()
-
         self.discriminator = nn.LSTM(input_size=2,
                                      hidden_size=16,
                                      num_layers=2,
@@ -270,7 +268,7 @@ class DiscriminateNet(nn.Module):
             conv1d.append(net)
             conv1d.append(nn.ReLU6())
         self.conv1d = nn.Sequential(*conv1d)
-        self.out = nn.Linear(in_channel[-1], 1)
+        self.out = nn.Linear(in_channel[-1], 1).cuda()
 
 
     def forward(self, tot_trajectory):
@@ -281,13 +279,13 @@ class DiscriminateNet(nn.Module):
         tot_displacement[:, :, 1:] = cat_trajectory[:, :, 1:] - cat_trajectory[:, :, :-1]
         tot_displacement = torch.transpose(torch.transpose(tot_displacement, 1, 2), 0, 1)
 
-        seq_emb, _ = self.discriminator(tot_displacement)
-        seq_emb = self.relu6(torch.transpose(torch.transpose(seq_emb, 0, 1), 1, 2))
+        seq_emb, _ = discriminator(tot_displacement)
+        seq_emb = relu6(torch.transpose(torch.transpose(seq_emb, 0, 1), 1, 2))
 
-        hid = self.conv1d(seq_emb).squeeze()
-        outs = self.sigmoid(self.out(hid))
+        hid = conv1d(seq_emb).squeeze()
+        outs = out(hid)
 
-        return outs
+        return torch.nn.sigmoid(out
 
 
 def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
@@ -981,22 +979,3 @@ class AttDest(nn.Module):
         agts = torch.cat((dist, agts), 1)
         agts = self.agt(agts)
         return agts
-
-
-def get_model(args):
-    net = lanegcn_vanilla_gan(config, args)
-    w_params = [(name, param) for name, param in net.named_parameters()]
-    params1 = [p for n, p in w_params]
-    opt = [Optimizer(params1, config)]
-    # loss = [Loss(config, args).cuda()]
-    loss = 0
-    params = [w_params]
-
-
-    net = net.cuda()
-    # post_process = PostProcess(config,args).cuda()
-    post_process = 0
-    config["save_dir"] = os.path.join(
-        config["save_dir"], args.case
-    )
-    return config, ArgoDataset, collate_fn, net, loss, post_process, opt, params

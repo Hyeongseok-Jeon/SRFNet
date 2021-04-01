@@ -56,7 +56,8 @@ parser.add_argument(
 parser.add_argument(
     "--transfer", default=['lanegcn', 'maneuver'], type=list
 )
-
+parser.add_argument("--mode", default='client')
+parser.add_argument("--port", default=52162)
 
 def main():
     seed = hvd.rank()
@@ -132,7 +133,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
