@@ -111,8 +111,8 @@ class lanegcn_vanilla_gan(nn.Module):
         actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
         egos = [actors[actor_idcs[i][0].unsqueeze(dim=0),:,:] for i in range(len(actor_idcs))]
         targets = [actors[actor_idcs[i][1].unsqueeze(dim=0),:,:] for i in range(len(actor_idcs))]
-        rot, orig = gpu(data["rot"]), gpu(data["orig"])
-        target_hist_traj = feat_to_global(targets, rot, orig)
+        rot, orig, ctrs = gpu(data["rot"]), gpu(data["orig"]), [gpu(data["ctrs"])[i][1] for i in range(len(actor_idcs))]
+        target_hist_traj = feat_to_global(targets, rot, orig, ctrs)
 
         hidden_target = self.encoder(data)
         mu_hidden_ego, sigma_hidden_ego = self.ego_encoder(actors_ego)
@@ -124,8 +124,15 @@ class lanegcn_vanilla_gan(nn.Module):
 
         mu_hidden_ego, sigma_hidden_ego = self.ego_encoder
 
-def feat_to_global(0, rot, orig):
-
+def feat_to_global(targets, rot, orig, ctrs):
+    batch_num = len(targets)
+    for i in range(batch_num):
+        target_cur_pos = orig[i] + ctrs[i]
+        target_x = targets[i][0,0,:]
+        target_y = targets[i][0,1,:]
+        
+# target shape = (1, 3, 20)
+        
 
 def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
     batch_size = len(actors)
