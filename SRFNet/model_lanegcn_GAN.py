@@ -125,6 +125,7 @@ class lanegcn_vanilla_gan(nn.Module):
 
         mu_hidden_ego, sigma_hidden_ego = self.ego_encoder
 
+        
 def feat_to_global(targets, rot, orig, ctrs):
     batch_num = len(targets)
     targets_mod = [torch.zeros_like(targets[i])[:,:2,:] for i in range(batch_num)]
@@ -140,6 +141,14 @@ def feat_to_global(targets, rot, orig, ctrs):
             
          
 # target shape = (1, 3, 20)
+class EncodeNet(nn.Module):
+    def __init__(self, config, args):
+        super(EncodeNet, self).__init__()
+        self.config = config
+        
+        
+        
+        
         
 
 def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
