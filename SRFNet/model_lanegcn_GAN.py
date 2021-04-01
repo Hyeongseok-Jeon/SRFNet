@@ -120,17 +120,25 @@ class lanegcn_vanilla_gan(nn.Module):
         hidden_ego = Variable(torch.randn(len(actors_ego), self.z_size).cuda(), requires_grad=True)
 
         fut_traj = self.generator(hidden_target, hidden_ego)
-        dis = self.discriminator(hist_traj, fut_traj)
+        tot_traj = torch.cat([hist_traj, fut_traj])
+        dis = self.discriminator(tot_traj)
 
         mu_hidden_ego, sigma_hidden_ego = self.ego_encoder
 
 def feat_to_global(targets, rot, orig, ctrs):
     batch_num = len(targets)
+    targets_mod = [torch.zeros_like(targets[i])[:,:2,:] for i in range(batch_num)]
     for i in range(batch_num):
-        target_cur_pos = orig[i] + ctrs[i]
-        target_x = targets[i][0,0,:]
-        target_y = targets[i][0,1,:]
-        
+        target_cur_pos = ctrs[i]
+        targets_mod[i][:,-1,:] = target_cur_pos
+        target_disp = targets[i][0,:2,:]
+        for j in range(18,-1,-1):
+            targets_mod[i][:, j, :] = targets_mod[i][:, j + 1, :] - target_disp[:, j + 1, :2]
+        targets[i] = np.matmul(torch.inv(rot), targets[i]) + orig[i].reshape(-1,2)
+    
+    return targets_mod
+            
+         
 # target shape = (1, 3, 20)
         
 
