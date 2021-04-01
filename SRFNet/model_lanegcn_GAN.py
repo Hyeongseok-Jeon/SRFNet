@@ -164,7 +164,7 @@ class lanegcn_vanilla_gan(nn.Module):
         dis_real = self.discriminator(tot_trajectory_real)
         dis_fake = self.discriminator(tot_trajectory_fake)
 
-        return [dis_real, dis_fake, target_fut_traj, tot_trajectory_fake]
+        return [target_gt_traj, target_fut_traj, dis_real, dis_fake, mu_hidden_ego, log_var_hidden_ego]
 
 
 def feat_to_global(targets, rot, orig, ctrs):
@@ -983,14 +983,46 @@ class AttDest(nn.Module):
         return agts
 
 
+class Loss(nn.Module):
+    def __init__(self, config):
+        super(Loss, self).__init__()
+        self.config = config
+        self.reg_loss = nn.SmoothL1Loss(reduction="mean")
+
+    def forward(self, target_gt_traj, target_fut_traj, dis_real, dis_fake, mu_hidden_ego, log_var_hidden_ego):
+        target_gt_traj_cat = torch.cat([torch.repeat_interleave(target_gt_traj[i].unsqueeze(dim=0), 6, dim=0) for i in range(len(target_gt_traj))], dim=0)
+        target_fut_traj_cat = torch.cat([target_fut_traj['reg'][i].squeeze() for i in range(len(target_gt_traj))])
+        mse = self.reg_loss(target_gt_traj_cat, target_fut_traj_cat)
+
+
+
+def loss(target_gt_traj, target_fut_traj, dis_real, dis_fake, mu_hidden_ego, log_var_hidden_ego):
+    kl = -0.5 * torch.sum(-log_var_hidden_ego.exp() - torch.pow(mu_hidden_ego, 2) + log_var_hidden_ego + 1, 1)
+
+
+    bce_dis_original = -torch.log(dis_real + 1e-3)
+    bce_dis_sampled = -torch.log(1 - labels_sampled + 1e-3)
+
+    bce_gen_original = -torch.log(1 - dis_real + 1e-3)
+    bce_gen_sampled = -torch.log(labels_sampled + 1e-3)
+
+
+
 def get_model(args):
     net = lanegcn_vanilla_gan(config, args)
-    w_params = [(name, param) for name, param in net.named_parameters()]
-    params1 = [p for n, p in w_params]
-    opt = [Optimizer(params1, config)]
+    params_ego_enc = [(name, param) for name, param in net.ego_encoder.named_parameters()]
+    params_gen = [(name, param) for name, param in net.generator.named_parameters()]
+    params_dis = [(name, param) for name, param in net.discriminator.named_parameters()]
+
+    params_opt_gen = params_ego_enc + params_gen
+    params_opt_dis = params_dis
+
+    params1 = [p for n, p in params_opt_gen]
+    params2 = [p for n, p in params_opt_dis]
+    opt = [Optimizer(params1, config), Optimizer(params2, config)]
     # loss = [Loss(config, args).cuda()]
     loss = 0
-    params = [w_params]
+    params = [params1, params2]
 
 
     net = net.cuda()
