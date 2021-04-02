@@ -231,10 +231,13 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         if train_dis:
             loss_discriminator.backward()
 
+        opt_enc.zero_grad()
         lr_enc = opt_enc.step(epoch)
         if train_dec:
+            opt_gen.zero_grad()
             lr_gen = opt_gen.step(epoch)
         if train_dis:
+            opt_dis.zero_grad()
             lr_dis = opt_dis.step(epoch)
 
         out_added = target_fut_traj
