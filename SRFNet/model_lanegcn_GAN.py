@@ -13,17 +13,17 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.autograd import Variable
 
-from SRFNet.data import ArgoDataset, collate_fn
-from SRFNet.utils import gpu, to_long, Optimizer, StepLR, to_float
+from data import ArgoDataset, collate_fn
+from utils import gpu, to_long, Optimizer, StepLR, to_float
 
-from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
-from SRFNet.model_maneuver_pred import get_model as get_manuever_model
+from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from model_maneuver_pred import get_model as get_manuever_model
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 file_path = os.path.abspath(__file__)
-# root_path = os.path.dirname(file_path)
-root_path = os.getcwd()
+root_path = os.path.dirname(file_path)
+# root_path = os.getcwd()
 model_name = os.path.basename(file_path).split(".")[0]
 
 ### config ###
@@ -48,8 +48,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 2
-config["val_batch_size"] = 2
+config["batch_size"] = 16
+config["val_batch_size"] = 16
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -64,10 +64,10 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path,  "dataset", "preprocess", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
-    root_path, "SRFNet", "dataset", "preprocess", "val_crs_dist6_angle90.p"
+    root_path,  "dataset", "preprocess", "val_crs_dist6_angle90.p"
 )
 config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', 'test_test.p')
 config["training"] = True
@@ -104,7 +104,7 @@ class lanegcn_vanilla_gan(nn.Module):
         super(lanegcn_vanilla_gan, self).__init__()
         self.config = config
         _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
-        pre_trained_weight = torch.load(os.path.join(root_path, "SRFNet/results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
+        pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
         pretrained_dict = pre_trained_weight['state_dict']
         new_model_dict = maneuver_pred_net.state_dict()
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
@@ -117,7 +117,7 @@ class lanegcn_vanilla_gan(nn.Module):
         self.generator = GenerateNet(config)
         self.discriminator = DiscriminateNet(config)
 
-    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+    def forward(self, data):
         actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
         egos = [actor_idcs[i][0].unsqueeze(dim=0) for i in range(len(actor_idcs))]
         targets = [actor_idcs[i][1].unsqueeze(dim=0) for i in range(len(actor_idcs))]
@@ -161,10 +161,12 @@ class lanegcn_vanilla_gan(nn.Module):
                                           torch.transpose(target_gt_traj[i].unsqueeze(dim=0), 1, 2)],
                                          dim=2) for i in range(len(target_hist_traj))]
 
-        dis_real = self.discriminator(tot_trajectory_real)
-        dis_fake = self.discriminator(tot_trajectory_fake)
+        dis_real = self.discriminator(tot_trajectory_real, get_hidden=False)
+        dis_fake = self.discriminator(tot_trajectory_fake, get_hidden=False)
+        hidden_real = self.discriminator(tot_trajectory_real,get_hidden=True)
+        hidden_fake = self.discriminator(tot_trajectory_fake,get_hidden=True)
 
-        return [target_gt_traj, target_fut_traj, dis_real, dis_fake, mu_hidden_ego, log_var_hidden_ego]
+        return target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego
 
 
 def feat_to_global(targets, rot, orig, ctrs):
@@ -194,7 +196,7 @@ class EncodeNet(nn.Module):
         self.m2a = M2A(config)
         self.a2a = A2A(config)
 
-    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+    def forward(self, data):
         actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
 
         actors = self.actor_net(actors)
@@ -273,7 +275,7 @@ class DiscriminateNet(nn.Module):
         self.out = nn.Linear(in_channel[-1], 1)
 
 
-    def forward(self, tot_trajectory):
+    def forward(self, tot_trajectory, get_hidden):
         # len(tot_trajectory) = batch_num
         # tot_trajectory.shape = (l, 2, 50) l=1 if traj = real, l = 6 if traj = fake
         cat_trajectory = torch.cat(tot_trajectory, dim=0)
@@ -286,11 +288,13 @@ class DiscriminateNet(nn.Module):
 
         hid = self.conv1d(seq_emb).squeeze()
         outs = self.sigmoid(self.out(hid))
+        if get_hidden:
+            return hid
+        else:
+            return outs
 
-        return outs
 
-
-def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
+def actor_gather(actors):
     batch_size = len(actors)
     num_actors = [len(x) for x in actors]
     actors = [x.transpose(1, 2) for x in actors]
@@ -312,7 +316,7 @@ def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
     for i in range(batch_size):
         idcs = torch.arange(count, count + num_actors[i]).to(actors.device)
         actor_idcs.append(idcs)
-        count += num_actors[i]
+        count = count + num_actors[i]
     return actors, actor_idcs, actors_inter_cat
 
 
@@ -402,7 +406,7 @@ class ActorNet(nn.Module):
         out = self.lateral[-1](outputs[-1])
         for i in range(len(outputs) - 2, -1, -1):
             out = F.interpolate(out, scale_factor=2, mode="linear", align_corners=False)
-            out += self.lateral[i](outputs[i])
+            out = out + self.lateral[i](outputs[i])
 
         out = self.output(out)[:, :, -1]
         return out
@@ -469,7 +473,7 @@ class MapNet(nn.Module):
 
         ctrs = torch.cat(graph["ctrs"], 0)
         feat = self.input(ctrs)
-        feat += self.seg(graph["feats"])
+        feat = feat + self.seg(graph["feats"])
         feat = self.relu(feat)
 
         """fuse map"""
@@ -503,7 +507,7 @@ class MapNet(nn.Module):
             feat = self.relu(feat)
 
             feat = self.fuse["ctr2"][i](feat)
-            feat += res
+            feat = feat + res
             feat = self.relu(feat)
             res = feat
         return feat, graph["idcs"], graph["ctrs"]
@@ -622,7 +626,7 @@ class M2M(nn.Module):
             feat = self.relu(feat)
 
             feat = self.fuse["ctr2"][i](feat)
-            feat += res
+            feat = feat + res
             feat = self.relu(feat)
             res = feat
         return feat
@@ -911,7 +915,7 @@ class Att(nn.Module):
             agts = self.agt(agts)
             agts = self.relu(agts)
             agts = self.linear(agts)
-            agts += res
+            agts = agts + res
             agts = self.relu(agts)
             return agts
 
@@ -929,8 +933,8 @@ class Att(nn.Module):
 
             hi.append(idcs[:, 0] + hi_count)
             wi.append(idcs[:, 1] + wi_count)
-            hi_count += len(agt_idcs[i])
-            wi_count += len(ctx_idcs[i])
+            hi_count = hi_count + len(agt_idcs[i])
+            wi_count = wi_count + len(ctx_idcs[i])
         hi = torch.cat(hi, 0)
         wi = torch.cat(wi, 0)
 
@@ -951,7 +955,7 @@ class Att(nn.Module):
         agts = self.relu(agts)
 
         agts = self.linear(agts)
-        agts += res
+        agts = agts + res
         agts = self.relu(agts)
         return agts
 
@@ -983,29 +987,205 @@ class AttDest(nn.Module):
         return agts
 
 
+class PredLoss(nn.Module):
+    def __init__(self, config):
+        super(PredLoss, self).__init__()
+        self.config = config
+        self.reg_loss = nn.SmoothL1Loss(reduction="sum")
+
+    def forward(self, out: Dict[str, List[Tensor]], gt_preds: List[Tensor], has_preds: List[Tensor]) -> Dict[str, Union[Tensor, int]]:
+        cls, reg = out["cls"], out["reg"]
+        cls = torch.cat([x for x in cls], 0)
+        reg = torch.cat([x for x in reg], 0)
+        gt_preds = torch.cat([x for x in gt_preds], 0)
+        has_preds = torch.cat([x for x in has_preds], 0)
+
+        loss_out = dict()
+        zero = 0.0 * (cls.sum() + reg.sum())
+        loss_out["cls_loss"] = zero.clone()
+        loss_out["num_cls"] = 0
+        loss_out["reg_loss"] = zero.clone()
+        loss_out["num_reg"] = 0
+
+        num_mods, num_preds = self.config["num_mods"], self.config["num_preds"]
+        # assert(has_preds.all())
+
+        last = has_preds.float() + 0.1 * torch.arange(num_preds).float().to(
+            has_preds.device
+        ) / float(num_preds)
+        max_last, last_idcs = last.max(1)
+        mask = max_last > 1.0
+
+        cls = cls[mask]
+        reg = reg[mask]
+        gt_preds = gt_preds[mask]
+        has_preds = has_preds[mask]
+        last_idcs = last_idcs[mask]
+
+        row_idcs = torch.arange(len(last_idcs)).long().to(last_idcs.device)
+        dist = []
+        for j in range(num_mods):
+            dist.append(
+                torch.sqrt(
+                    (
+                            (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
+                            ** 2
+                    ).sum(1)
+                )
+            )
+        dist = torch.cat([x.unsqueeze(1) for x in dist], 1)
+        min_dist, min_idcs = dist.min(1)
+        row_idcs = torch.arange(len(min_idcs)).long().to(min_idcs.device)
+
+        mgn = cls[row_idcs, min_idcs].unsqueeze(1) - cls
+        mask0 = (min_dist < self.config["cls_th"]).view(-1, 1)
+        mask1 = dist - min_dist.view(-1, 1) > self.config["cls_ignore"]
+        mgn = mgn[mask0 * mask1]
+        mask = mgn < self.config["mgn"]
+        coef = self.config["cls_coef"]
+        loss_out["cls_loss"] += coef * (
+                self.config["mgn"] * mask.sum() - mgn[mask].sum()
+        )
+        loss_out["num_cls"] += mask.sum().item()
+
+        reg = reg[row_idcs, min_idcs]
+        coef = self.config["reg_coef"]
+        loss_out["reg_loss"] += coef * self.reg_loss(
+            reg[has_preds], gt_preds[has_preds]
+        )
+        loss_out["num_reg"] += has_preds.sum().item()
+        return loss_out
+
+
 class Loss(nn.Module):
     def __init__(self, config):
         super(Loss, self).__init__()
         self.config = config
-        self.reg_loss = nn.SmoothL1Loss(reduction="mean")
+        self.reg_loss = nn.SmoothL1Loss(reduction="sum")
+        self.cls_loss = nn.BCELoss(reduction='sum')
+        self.hidden_loss = nn.L1Loss(reduction='sum')
+        self.pred_loss = PredLoss(config)
 
-    def forward(self, target_gt_traj, target_fut_traj, dis_real, dis_fake, mu_hidden_ego, log_var_hidden_ego):
+    def forward(self, target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego, data):
         target_gt_traj_cat = torch.cat([torch.repeat_interleave(target_gt_traj[i].unsqueeze(dim=0), 6, dim=0) for i in range(len(target_gt_traj))], dim=0)
         target_fut_traj_cat = torch.cat([target_fut_traj['reg'][i].squeeze() for i in range(len(target_gt_traj))])
-        mse = self.reg_loss(target_gt_traj_cat, target_fut_traj_cat)
+        l1loss_trajectory = self.reg_loss(target_gt_traj_cat, target_fut_traj_cat)
+        hidden_real_cat = torch.cat([torch.repeat_interleave(hidden_real[i:i+1,:], 6, dim=0) for i in range(len(target_gt_traj))], dim=0)
+        MAELoss_layer = self.hidden_loss(hidden_real_cat, hidden_fake)
+
+        kl_loss = torch.sum(-0.5 * torch.sum(-log_var_hidden_ego.exp() - torch.pow(mu_hidden_ego,2) + log_var_hidden_ego + 1, 1))
+
+        bce_dis_real = self.cls_loss(dis_real, torch.ones_like(dis_real))
+        bce_dis_fake = self.cls_loss(dis_fake, torch.zeros_like(dis_fake))
+
+        bce_gen_real = self.cls_loss(dis_real, torch.zeros_like(dis_real))
+        bce_gen_fake = self.cls_loss(dis_fake, torch.ones_like(dis_fake))
+
+        gt_preds = [gpu(data["gt_preds"])[i][1:2, :, :] for i in range(len(data["gt_preds"]))]
+        has_preds = [gpu(data["has_preds"])[i][1:2, :] for i in range(len(data["has_preds"]))]
+        loss_out = self.pred_loss(target_fut_traj, gt_preds, has_preds)
+        loss_out["loss"] = loss_out["cls_loss"] / (
+                loss_out["num_cls"] + 1e-10
+        ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
+
+        loss_out['l1loss_trajectory'] = l1loss_trajectory
+        loss_out['MAELoss_layer'] = MAELoss_layer
+        loss_out['kl_loss'] = kl_loss
+        loss_out['bce_gen_fake'] = bce_gen_fake
+        loss_out['bce_gen_real'] = bce_gen_real
+        loss_out['bce_dis_fake'] = bce_dis_fake
+        loss_out['bce_dis_real'] = bce_dis_real
+
+        return loss_out
 
 
+class PostProcess(nn.Module):
+    def __init__(self, config, args):
+        super(PostProcess, self).__init__()
+        self.config = config
+        self.args = args
 
-def loss(target_gt_traj, target_fut_traj, dis_real, dis_fake, mu_hidden_ego, log_var_hidden_ego):
-    kl = -0.5 * torch.sum(-log_var_hidden_ego.exp() - torch.pow(mu_hidden_ego, 2) + log_var_hidden_ego + 1, 1)
+    def forward(self, out, data):
+        post_out = dict()
+        post_out["preds"] = [x.detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
+        post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
+        return post_out
+
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
+        if len(metrics.keys()) == 0:
+            for key in loss_out:
+                if key != "loss":
+                    metrics[key] = 0.0
+
+            for key in post_out:
+                metrics[key] = []
+
+        for key in loss_out:
+            if key == "loss":
+                continue
+            if isinstance(loss_out[key], torch.Tensor):
+                metrics[key] += loss_out[key].item()
+            else:
+                metrics[key] += loss_out[key]
+
+        for key in post_out:
+            metrics[key] += post_out[key]
+        return metrics
+
+    def display(self, metrics, dt, epoch, lr=None):
+        """Every display-iters print training/val information"""
+        if lr is not None:
+            print("Epoch %3.3f, lr %.5f, time %3.2f" % (epoch, lr, dt))
+        else:
+            print(
+                "************************* Validation, time %3.2f *************************"
+                % dt
+            )
+
+        cls = metrics["cls_loss"] / (metrics["num_cls"] + 1e-10)
+        reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
+        l1loss_trajectory = metrics["l1loss_trajectory"] / (len(metrics["preds"]))
+        MAELoss_layer = metrics["MAELoss_layer"] / (len(metrics["preds"]))
+        kl_loss = metrics["kl_loss"] / (len(metrics["preds"]))
+        bce_gen_fake = metrics["bce_gen_fake"] / (len(metrics["preds"]))
+        bce_gen_real = metrics["bce_gen_real"] / (len(metrics["preds"]))
+        bce_dis_fake = metrics["bce_dis_fake"] / (len(metrics["preds"]))
+        bce_dis_real = metrics["bce_dis_real"] / (len(metrics["preds"]))
+
+        loss_encoder = kl_loss + MAELoss_layer
+        loss_discriminator = bce_dis_fake + bce_dis_real
+        loss_generator = torch.sum(1e-4 * MAELoss_layer) + (1.0 - 1e-4) * (bce_gen_fake + bce_gen_real)
+
+        preds = np.concatenate(metrics["preds"], 0)
+        gt_preds = np.concatenate(metrics["gt_preds"], 0)
+        has_preds = np.concatenate(metrics["has_preds"], 0)
+        ade1, fde1, ade, fde, min_idcs = pred_metrics(preds, gt_preds, has_preds)
+
+        print(
+            "loss_encoder %2.4f, loss_discriminator %2.4f, loss_generator %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
+            % (loss_encoder, loss_discriminator, loss_generator, ade1, fde1, ade, fde)
+        )
+        print()
 
 
-    bce_dis_original = -torch.log(dis_real + 1e-3)
-    bce_dis_sampled = -torch.log(1 - labels_sampled + 1e-3)
+def pred_metrics(preds, gt_preds, has_preds):
+    assert has_preds.all()
+    preds = np.asarray(preds, np.float32)
+    gt_preds = np.asarray(gt_preds, np.float32)
 
-    bce_gen_original = -torch.log(1 - dis_real + 1e-3)
-    bce_gen_sampled = -torch.log(labels_sampled + 1e-3)
+    """batch_size x num_mods x num_preds"""
+    err = np.sqrt(((preds - np.expand_dims(gt_preds, 1)) ** 2).sum(3))
 
+    ade1 = err[:, 0].mean()
+    fde1 = err[:, 0, -1].mean()
+
+    min_idcs = err[:, :, -1].argmin(1)
+    row_idcs = np.arange(len(min_idcs)).astype(np.int64)
+    err = err[row_idcs, min_idcs]
+    ade = err.mean()
+    fde = err[:, -1].mean()
+    return ade1, fde1, ade, fde, min_idcs
 
 
 def get_model(args):
@@ -1014,20 +1194,16 @@ def get_model(args):
     params_gen = [(name, param) for name, param in net.generator.named_parameters()]
     params_dis = [(name, param) for name, param in net.discriminator.named_parameters()]
 
-    params_opt_gen = params_ego_enc + params_gen
-    params_opt_dis = params_dis
-
-    params1 = [p for n, p in params_opt_gen]
-    params2 = [p for n, p in params_opt_dis]
-    opt = [Optimizer(params1, config), Optimizer(params2, config)]
-    # loss = [Loss(config, args).cuda()]
-    loss = 0
-    params = [params1, params2]
-
+    parama0 = [p for n, p in params_ego_enc]
+    params1 = [p for n, p in params_gen]
+    params2 = [p for n, p in params_dis]
+    opt = [Optimizer(parama0, config), Optimizer(params1, config), Optimizer(params2, config)]
+    loss = Loss(config).cuda()
+    params = [params_ego_enc, params_gen, params_dis]
 
     net = net.cuda()
     # post_process = PostProcess(config,args).cuda()
-    post_process = 0
+    post_process = PostProcess(config,args).cuda()
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
     )
