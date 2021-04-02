@@ -276,13 +276,14 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 def val(config, data_loader, net, loss, post_process, epoch):
     start_time = time.time()
     metrics = dict()
-    for i, data in enumerate(data_loader):
-        data = dict(data)
-        target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego = net(data)
-        loss_out = loss(target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego, data)
-        out_added = target_fut_traj
-        post_out = post_process(out_added, data)
-        post_process.append(metrics, loss_out, post_out)
+    with torch.no_grad():
+        for i, data in enumerate(data_loader):
+            data = dict(data)
+            target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego = net(data)
+            loss_out = loss(target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego, data)
+            out_added = target_fut_traj
+            post_out = post_process(out_added, data)
+            post_process.append(metrics, loss_out, post_out)
 
     dt = time.time() - start_time
     metrics = sync(metrics)
