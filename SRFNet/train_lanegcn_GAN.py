@@ -232,16 +232,19 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         opt_dis.zero_grad()
 
         loss_encoder.backward(retain_graph=True)
+        lr_enc = opt_enc.step(epoch)
+
         if train_dec:
             loss_generator.backward(retain_graph=True)
+            lr_gen = opt_gen.step(epoch)
+
         if train_dis:
             loss_discriminator.backward()
-
-        lr_enc = opt_enc.step(epoch)
-        if train_dec:
-            lr_gen = opt_gen.step(epoch)
-        if train_dis:
             lr_dis = opt_dis.step(epoch)
+        #
+        #
+        # if train_dec:
+        # if train_dis:
 
         #
         # net.zero_grad()
