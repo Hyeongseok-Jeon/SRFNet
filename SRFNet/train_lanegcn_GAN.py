@@ -82,7 +82,7 @@ def main():
     if config["horovod"]:
         for i in range(len(opt)):
             opt[i].opt = hvd.DistributedOptimizer(
-                opt[i].opt, named_parameters=params[i], backward_passes_per_step=4
+                opt[i].opt, named_parameters=params[i], backward_passes_per_step=6
             )
 
     if args.resume or args.weight:
