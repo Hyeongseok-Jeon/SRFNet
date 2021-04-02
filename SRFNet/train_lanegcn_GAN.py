@@ -223,9 +223,9 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             train_dis = True
             train_dec = True
 
-        opt_enc.synchronize()
-        opt_gen.synchronize()
-        opt_dis.synchronize()
+        opt_enc.opt.synchronize()
+        opt_gen.opt.synchronize()
+        opt_dis.opt.synchronize()
 
         opt_enc.zero_grad()
         opt_gen.zero_grad()
