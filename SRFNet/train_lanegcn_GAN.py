@@ -132,7 +132,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
@@ -262,7 +262,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             start_time = time.time()
             metrics = dict()
 
-        if num_iters % val_iters == 0:
+        if True:
             val(config, val_loader, net, loss, post_process, epoch)
 
         if epoch >= config["num_epochs"]:
