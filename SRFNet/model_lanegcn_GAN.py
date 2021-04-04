@@ -1155,7 +1155,7 @@ class PostProcess(nn.Module):
 
         loss_encoder = kl_loss + MAELoss_layer
         loss_discriminator = bce_dis_fake + bce_dis_real
-        loss_generator = torch.sum(1e-4 * MAELoss_layer) + (1.0 - 1e-4) * (bce_gen_fake + bce_gen_real)
+        loss_generator = 1e-4 * MAELoss_layer + (1.0 - 1e-4) * (bce_gen_fake + bce_gen_real)
 
         preds = np.concatenate(metrics["preds"], 0)
         gt_preds = np.concatenate(metrics["gt_preds"], 0)
