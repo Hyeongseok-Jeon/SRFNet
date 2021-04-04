@@ -301,7 +301,7 @@ def save_ckpt(net, opt_enc, opt_gen, opt_dis, save_dir, epoch):
 
     save_name = "%3.3f.ckpt" % epoch
     torch.save(
-        {"epoch": epoch, "state_dict": state_dict, "opt_enc_state": opt_enc.state_dict(), "opt_gen_state": opt_gen.state_dict(), "opt_dis_state": opt_dis.state_dict()},
+        {"epoch": epoch, "state_dict": state_dict, "opt_enc_state": opt_enc.opt.state_dict(), "opt_gen_state": opt_gen.opt.state_dict(), "opt_dis_state": opt_dis.opt.state_dict()},
         os.path.join(save_dir, save_name),
     )
 
