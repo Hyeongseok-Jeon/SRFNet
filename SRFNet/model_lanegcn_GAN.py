@@ -1153,9 +1153,9 @@ class PostProcess(nn.Module):
         bce_dis_fake = metrics["bce_dis_fake"] / (len(metrics["preds"]))
         bce_dis_real = metrics["bce_dis_real"] / (len(metrics["preds"]))
 
-        loss_encoder = kl_loss + MAELoss_layer
+        loss_encoder = kl_loss + l1loss_trajectory
         loss_discriminator = bce_dis_fake + bce_dis_real
-        loss_generator = 1e-4 * MAELoss_layer + (1.0 - 1e-4) * (bce_gen_fake + bce_gen_real)
+        loss_generator = 0.2 * l1loss_trajectory + (1.0 - 0.2) * (bce_gen_fake + bce_gen_real)
 
         preds = np.concatenate(metrics["preds"], 0)
         gt_preds = np.concatenate(metrics["gt_preds"], 0)

@@ -209,9 +209,9 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         bce_gen_real = loss_out['bce_gen_real']
         bce_dis_fake = loss_out['bce_dis_fake']
         bce_dis_real = loss_out['bce_dis_real']
-        loss_encoder = kl_loss + MAELoss_layer
+        loss_encoder = kl_loss + l1loss_trajectory
         loss_discriminator = bce_dis_fake + bce_dis_real
-        loss_generator = torch.sum(1e-4 * MAELoss_layer) + (1.0 - 1e-4) * (bce_gen_fake + bce_gen_real)
+        loss_generator = torch.sum(0.2 * l1loss_trajectory) + (1.0 - 0.2) * (bce_gen_fake + bce_gen_real)
 
         train_dis = True
         train_dec = True
