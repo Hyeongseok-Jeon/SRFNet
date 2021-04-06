@@ -48,8 +48,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 2
+config["val_batch_size"] = 2
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -1061,7 +1061,7 @@ class Loss(nn.Module):
     def __init__(self, config):
         super(Loss, self).__init__()
         self.config = config
-        self.reg_loss = nn.SmoothL1Loss(reduction="sum")
+        self.reg_loss = nn.SmoothL1Loss(reduction="mean")
         self.cls_loss = nn.BCELoss(reduction='sum')
         self.hidden_loss = nn.L1Loss(reduction='sum')
         self.pred_loss = PredLoss(config)
@@ -1069,7 +1069,7 @@ class Loss(nn.Module):
     def forward(self, target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego, data):
         target_gt_traj_cat = torch.cat([torch.repeat_interleave(target_gt_traj[i].unsqueeze(dim=0), 6, dim=0) for i in range(len(target_gt_traj))], dim=0)
         target_fut_traj_cat = torch.cat([target_fut_traj['reg'][i].squeeze() for i in range(len(target_gt_traj))])
-        l1loss_trajectory = self.reg_loss(target_gt_traj_cat, target_fut_traj_cat)
+        l1loss_trajectory = self.reg_loss(target_gt_traj_cat, target_fut_traj_cat) * len(target_gt_traj)
         hidden_real_cat = torch.cat([torch.repeat_interleave(hidden_real[i:i+1,:], 6, dim=0) for i in range(len(target_gt_traj))], dim=0)
         MAELoss_layer = self.hidden_loss(hidden_real_cat, hidden_fake)
 

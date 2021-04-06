@@ -23,9 +23,8 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 import horovod.torch as hvd
-from SRFNet.utils import gpu
 from torch.utils.data.distributed import DistributedSampler
-from SRFNet.utils import Logger, load_pretrain
+from utils import Logger, load_pretrain
 from mpi4py import MPI
 from torch import Tensor, nn
 # import SRFNet.model_lanegcn_GAN as model
@@ -55,7 +54,8 @@ parser.add_argument(
 parser.add_argument(
     "--transfer", default=['encoder'], type=list
 )
-
+# parser.add_argument("--mode", default='client')
+# parser.add_argument("--port", default=52162)
 margin = 0.35
 equilibrium = 0.68
 
@@ -209,9 +209,9 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         bce_gen_real = loss_out['bce_gen_real']
         bce_dis_fake = loss_out['bce_dis_fake']
         bce_dis_real = loss_out['bce_dis_real']
-        loss_encoder = kl_loss + l1loss_trajectory
+        loss_encoder = kl_loss + l1loss_trajectory + MAELoss_layer
         loss_discriminator = bce_dis_fake + bce_dis_real
-        loss_generator = torch.sum(0.2 * l1loss_trajectory) + (1.0 - 0.2) * (bce_gen_fake + bce_gen_real)
+        loss_generator = torch.sum(0.2 * (MAELoss_layer+l1loss_trajectory)) + (1.0 - 0.2) * (bce_gen_fake)
 
         train_dis = True
         train_dec = True
