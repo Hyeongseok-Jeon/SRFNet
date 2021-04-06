@@ -1,0 +1,334 @@
+Epoch 1.000, lr 0.00100, time 1579.00
+Epoch 1.000, lr 0.00100, time 1574.20
+loss_encoder 0.4032, loss_discriminator 2.8880, loss_generator 11.7548, ade1 13.7423, fde1 25.6073, ade 13.7784, fde 25.2090
+
+Epoch 1.000, lr 0.00100, time 1559.56
+loss_encoder 0.6804, loss_discriminator 2.9050, loss_generator 11.6869, ade1 13.7416, fde1 25.6063, ade 13.7778, fde 25.2078
+
+Epoch 2.000, lr 0.00100, time 1589.55
+loss_encoder 0.0158, loss_discriminator 2.8708, loss_generator 11.8281, ade1 13.7704, fde1 25.6520, ade 13.8062, fde 25.2564
+
+************************* Validation, time 133.65 *************************
+loss_encoder 0.0065, loss_discriminator 2.8708, loss_generator 11.8130, ade1 15.2221, fde1 28.1407, ade 15.2733, fde 27.7177
+
+Epoch 3.000, lr 0.00100, time 1728.34
+loss_encoder 0.0049, loss_discriminator 2.8708, loss_generator 11.8282, ade1 13.7214, fde1 25.5749, ade 13.7572, fde 25.1756
+
+Epoch 4.000, lr 0.00100, time 1596.71
+loss_encoder 0.0043, loss_discriminator 2.8708, loss_generator 11.8283, ade1 13.7597, fde1 25.6425, ade 13.7950, fde 25.2470
+
+************************* Validation, time 138.46 *************************
+loss_encoder 0.0138, loss_discriminator 2.8708, loss_generator 11.8126, ade1 15.2221, fde1 28.1409, ade 15.2733, fde 27.7177
+
+Epoch 5.000, lr 0.00100, time 1729.02
+loss_encoder 0.0046, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7550, fde1 25.6309, ade 13.7914, fde 25.2318
+
+Epoch 6.000, lr 0.00100, time 1588.82
+loss_encoder 0.0046, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7388, fde1 25.6020, ade 13.7727, fde 25.2094
+
+************************* Validation, time 137.61 *************************
+loss_encoder 0.0013, loss_discriminator 2.8708, loss_generator 11.8299, ade1 15.2221, fde1 28.1407, ade 15.2733, fde 27.7177
+
+Epoch 7.000, lr 0.00100, time 1681.80
+loss_encoder 0.0054, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7564, fde1 25.6473, ade 13.7916, fde 25.2467
+
+Epoch 8.000, lr 0.00100, time 1580.02
+loss_encoder 0.0052, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7929, fde1 25.7097, ade 13.8287, fde 25.3170
+
+************************* Validation, time 137.73 *************************
+loss_encoder 0.0012, loss_discriminator 2.8708, loss_generator 11.8202, ade1 15.2221, fde1 28.1407, ade 15.2733, fde 27.7177
+
+Epoch 9.000, lr 0.00100, time 1708.25
+loss_encoder 0.0046, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7599, fde1 25.6407, ade 13.7944, fde 25.2406
+
+Epoch 10.000, lr 0.00100, time 1593.31
+loss_encoder 0.0043, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7340, fde1 25.6041, ade 13.7698, fde 25.2030
+
+************************* Validation, time 137.71 *************************
+loss_encoder 0.0092, loss_discriminator 2.8708, loss_generator 11.8454, ade1 15.2220, fde1 28.1410, ade 15.2733, fde 27.7177
+
+Epoch 11.000, lr 0.00100, time 1723.27
+loss_encoder 0.0061, loss_discriminator 2.8708, loss_generator 11.8285, ade1 13.7564, fde1 25.6206, ade 13.7918, fde 25.2226
+
+Epoch 12.000, lr 0.00100, time 1574.52
+loss_encoder 0.0046, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7475, fde1 25.6333, ade 13.7812, fde 25.2356
+
+************************* Validation, time 137.42 *************************
+loss_encoder 0.0041, loss_discriminator 2.8708, loss_generator 11.8195, ade1 15.2219, fde1 28.1410, ade 15.2733, fde 27.7177
+
+Epoch 13.000, lr 0.00100, time 1716.89
+loss_encoder 0.0039, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7540, fde1 25.6381, ade 13.7893, fde 25.2398
+
+Epoch 14.000, lr 0.00100, time 1569.02
+loss_encoder 0.0044, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7572, fde1 25.6405, ade 13.7928, fde 25.2443
+
+************************* Validation, time 132.40 *************************
+loss_encoder 0.0026, loss_discriminator 2.8708, loss_generator 11.8162, ade1 15.2220, fde1 28.1410, ade 15.2733, fde 27.7177
+
+Epoch 15.000, lr 0.00100, time 1722.17
+loss_encoder 0.0055, loss_discriminator 2.8708, loss_generator 11.8285, ade1 13.7567, fde1 25.6358, ade 13.7917, fde 25.2422
+
+Epoch 16.000, lr 0.00100, time 1574.88
+loss_encoder 0.0036, loss_discriminator 2.8708, loss_generator 11.8285, ade1 13.7661, fde1 25.6546, ade 13.8018, fde 25.2588
+
+************************* Validation, time 132.47 *************************
+loss_encoder 0.0026, loss_discriminator 2.8708, loss_generator 11.8469, ade1 15.2221, fde1 28.1409, ade 15.2733, fde 27.7177
+
+Epoch 17.000, lr 0.00100, time 1718.32
+loss_encoder 0.0054, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7818, fde1 25.6730, ade 13.8177, fde 25.2799
+
+Epoch 18.000, lr 0.00100, time 1573.90
+loss_encoder 0.0050, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7414, fde1 25.6136, ade 13.7764, fde 25.2155
+
+************************* Validation, time 133.25 *************************
+loss_encoder 0.0068, loss_discriminator 2.8708, loss_generator 11.8207, ade1 15.2220, fde1 28.1407, ade 15.2733, fde 27.7177
+
+Epoch 19.000, lr 0.00100, time 1731.14
+loss_encoder 0.0041, loss_discriminator 2.8708, loss_generator 11.8285, ade1 13.7521, fde1 25.6381, ade 13.7871, fde 25.2447
+
+Epoch 20.000, lr 0.00100, time 1588.65
+loss_encoder 0.0052, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7701, fde1 25.6614, ade 13.8048, fde 25.2666
+
+************************* Validation, time 132.76 *************************
+loss_encoder 0.0056, loss_discriminator 2.8708, loss_generator 11.8250, ade1 15.2221, fde1 28.1408, ade 15.2733, fde 27.7177
+
+Epoch 21.000, lr 0.00100, time 1719.21
+loss_encoder 0.0046, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.8035, fde1 25.7393, ade 13.8377, fde 25.3407
+
+Epoch 22.000, lr 0.00100, time 1585.56
+loss_encoder 0.0057, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7485, fde1 25.6147, ade 13.7841, fde 25.2190
+
+************************* Validation, time 137.37 *************************
+loss_encoder 0.0009, loss_discriminator 2.8708, loss_generator 11.8471, ade1 15.2222, fde1 28.1407, ade 15.2733, fde 27.7177
+
+Epoch 23.000, lr 0.00100, time 1721.30
+loss_encoder 0.0051, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7269, fde1 25.5766, ade 13.7621, fde 25.1772
+
+Epoch 24.000, lr 0.00100, time 1591.30
+loss_encoder 0.0041, loss_discriminator 2.8708, loss_generator 11.8284, ade1 13.7291, fde1 25.5855, ade 13.7647, fde 25.1859
+
+Epoch 1.000, lr 0.00100, time 1569.12
+loss_encoder 2307.9381, loss_discriminator 0.3992, loss_generator 482.5405, ade1 11.0916, fde1 23.1190, ade 11.0511, fde 21.3900
+
+Epoch 2.000, lr 0.00100, time 1598.48
+loss_encoder 1044.2940, loss_discriminator 0.3408, loss_generator 226.5764, ade1 5.3416, fde1 12.3161, ade 5.1994, fde 10.3506
+
+************************* Validation, time 133.41 *************************
+loss_encoder 849.3195, loss_discriminator 0.5649, loss_generator 185.0989, ade1 4.3386, fde1 10.4356, ade 4.2389, fde 8.8790
+
+Epoch 3.000, lr 0.00100, time 1725.34
+loss_encoder 755.5749, loss_discriminator 0.4473, loss_generator 173.3234, ade1 4.0198, fde1 10.2506, ade 3.8963, fde 8.7054
+
+Epoch 4.000, lr 0.00100, time 1586.56
+loss_encoder 679.6925, loss_discriminator 0.3532, loss_generator 161.7134, ade1 3.6976, fde1 9.5752, ade 3.5738, fde 8.1538
+
+************************* Validation, time 137.46 *************************
+loss_encoder 661.1678, loss_discriminator 0.3929, loss_generator 154.9453, ade1 3.5232, fde1 8.8652, ade 3.3561, fde 7.4590
+
+Epoch 5.000, lr 0.00100, time 1723.35
+loss_encoder 583.5175, loss_discriminator 0.3458, loss_generator 141.8669, ade1 3.2355, fde1 8.4685, ade 3.1123, fde 7.1309
+
+Epoch 6.000, lr 0.00100, time 1586.54
+loss_encoder 462.1470, loss_discriminator 0.2831, loss_generator 117.0582, ade1 2.6401, fde1 6.6706, ade 2.4778, fde 5.4584
+
+************************* Validation, time 137.81 *************************
+loss_encoder 465.7635, loss_discriminator 0.1985, loss_generator 118.4801, ade1 2.6390, fde1 6.1252, ade 2.5113, fde 4.9836
+
+Epoch 7.000, lr 0.00100, time 1708.19
+loss_encoder 430.7008, loss_discriminator 0.2518, loss_generator 111.9333, ade1 2.5049, fde1 5.9514, ade 2.3338, fde 4.7628
+
+Epoch 8.000, lr 0.00100, time 1587.96
+loss_encoder 377.7308, loss_discriminator 0.2032, loss_generator 101.7462, ade1 2.2711, fde1 5.4393, ade 2.0746, fde 4.2923
+
+************************* Validation, time 137.25 *************************
+loss_encoder 398.4602, loss_discriminator 0.1868, loss_generator 105.7790, ade1 2.3588, fde1 5.4762, ade 2.0831, fde 4.2388
+
+Epoch 9.000, lr 0.00100, time 1705.37
+loss_encoder 336.5705, loss_discriminator 0.2888, loss_generator 91.8373, ade1 2.0607, fde1 4.8826, ade 1.8867, fde 3.8834
+
+Epoch 10.000, lr 0.00100, time 1596.46
+loss_encoder 325.8333, loss_discriminator 0.2920, loss_generator 90.4209, ade1 1.9955, fde1 4.5863, ade 1.8474, fde 3.7295
+
+************************* Validation, time 138.04 *************************
+loss_encoder 355.2917, loss_discriminator 0.2079, loss_generator 96.3987, ade1 2.1087, fde1 4.5797, ade 1.9198, fde 3.6874
+
+Epoch 11.000, lr 0.00100, time 1712.40
+loss_encoder 309.5703, loss_discriminator 0.2397, loss_generator 86.5494, ade1 1.9260, fde1 4.3843, ade 1.7743, fde 3.5794
+
+Epoch 12.000, lr 0.00100, time 1586.57
+loss_encoder 291.6608, loss_discriminator 0.3280, loss_generator 80.3075, ade1 1.8481, fde1 4.1882, ade 1.7318, fde 3.5032
+
+************************* Validation, time 137.41 *************************
+loss_encoder 312.9645, loss_discriminator 0.1289, loss_generator 87.9215, ade1 1.9404, fde1 4.2046, ade 1.8217, fde 3.5139
+
+Epoch 13.000, lr 0.00100, time 1723.83
+loss_encoder 291.1874, loss_discriminator 0.1639, loss_generator 84.4506, ade1 1.8450, fde1 4.1883, ade 1.7241, fde 3.5175
+
+Epoch 14.000, lr 0.00100, time 1581.71
+loss_encoder 285.7359, loss_discriminator 0.5234, loss_generator 75.9759, ade1 1.8152, fde1 4.0527, ade 1.6849, fde 3.3835
+
+************************* Validation, time 138.16 *************************
+loss_encoder 309.4660, loss_discriminator 0.1151, loss_generator 89.6795, ade1 1.9241, fde1 4.0488, ade 1.7987, fde 3.3981
+
+Epoch 15.000, lr 0.00100, time 1725.99
+loss_encoder 275.3764, loss_discriminator 0.1460, loss_generator 81.1306, ade1 1.7629, fde1 3.9433, ade 1.6430, fde 3.3089
+
+Epoch 16.000, lr 0.00100, time 1570.14
+loss_encoder 268.1910, loss_discriminator 0.2605, loss_generator 76.6964, ade1 1.7304, fde1 3.8819, ade 1.6133, fde 3.2700
+
+************************* Validation, time 132.45 *************************
+loss_encoder 289.6005, loss_discriminator 0.1627, loss_generator 82.7552, ade1 1.8225, fde1 3.9213, ade 1.7056, fde 3.3145
+
+Epoch 17.000, lr 0.00100, time 1720.25
+loss_encoder 277.2906, loss_discriminator 0.1773, loss_generator 80.9884, ade1 1.7753, fde1 3.9475, ade 1.6599, fde 3.3466
+
+Epoch 18.000, lr 0.00100, time 1586.71
+loss_encoder 280.9750, loss_discriminator 0.1594, loss_generator 81.7441, ade1 1.7906, fde1 3.9930, ade 1.6502, fde 3.3482
+
+************************* Validation, time 133.93 *************************
+loss_encoder 296.4720, loss_discriminator 0.1632, loss_generator 85.7258, ade1 1.8584, fde1 3.9908, ade 1.6759, fde 3.2791
+
+Epoch 19.000, lr 0.00100, time 1734.07
+loss_encoder 285.1055, loss_discriminator 0.2894, loss_generator 79.9054, ade1 1.7840, fde1 4.0068, ade 1.6590, fde 3.4051
+
+Epoch 20.000, lr 0.00100, time 1583.12
+loss_encoder 270.4464, loss_discriminator 0.1486, loss_generator 79.8944, ade1 1.7263, fde1 3.7808, ade 1.6212, fde 3.2350
+
+************************* Validation, time 133.30 *************************
+loss_encoder 291.8187, loss_discriminator 0.1310, loss_generator 84.0294, ade1 1.8271, fde1 3.9237, ade 1.6974, fde 3.3264
+
+Epoch 21.000, lr 0.00100, time 1721.37
+loss_encoder 271.6887, loss_discriminator 0.2626, loss_generator 79.5914, ade1 1.7471, fde1 3.8510, ade 1.6161, fde 3.2619
+
+Epoch 22.000, lr 0.00100, time 1589.12
+loss_encoder 257.4364, loss_discriminator 0.1282, loss_generator 77.8846, ade1 1.6850, fde1 3.7813, ade 1.5600, fde 3.2341
+
+************************* Validation, time 134.04 *************************
+loss_encoder 274.9070, loss_discriminator 0.1319, loss_generator 80.7079, ade1 1.7585, fde1 3.8162, ade 1.6096, fde 3.2621
+
+Epoch 23.000, lr 0.00100, time 1725.66
+loss_encoder 259.4572, loss_discriminator 0.2252, loss_generator 76.8044, ade1 1.6809, fde1 3.6949, ade 1.5698, fde 3.1820
+
+Epoch 24.000, lr 0.00100, time 1578.27
+loss_encoder 271.7321, loss_discriminator 0.1402, loss_generator 78.8273, ade1 1.7088, fde1 3.7620, ade 1.5910, fde 3.2201
+
+************************* Validation, time 136.98 *************************
+loss_encoder 295.7951, loss_discriminator 0.1290, loss_generator 84.1888, ade1 1.7921, fde1 3.8062, ade 1.6794, fde 3.2881
+
+Epoch 25.000, lr 0.00100, time 1734.94
+loss_encoder 255.7948, loss_discriminator 0.2822, loss_generator 74.7108, ade1 1.6671, fde1 3.7297, ade 1.5513, fde 3.1921
+
+Epoch 26.000, lr 0.00100, time 1602.86
+loss_encoder 247.9269, loss_discriminator 0.2995, loss_generator 73.0940, ade1 1.6229, fde1 3.6232, ade 1.5204, fde 3.1272
+
+************************* Validation, time 136.86 *************************
+loss_encoder 264.8474, loss_discriminator 0.1491, loss_generator 79.8507, ade1 1.7009, fde1 3.6436, ade 1.5918, fde 3.1531
+
+Epoch 27.000, lr 0.00100, time 1704.99
+loss_encoder 244.5766, loss_discriminator 0.1518, loss_generator 75.1513, ade1 1.6029, fde1 3.5862, ade 1.4978, fde 3.1091
+
+Epoch 28.000, lr 0.00100, time 1587.23
+loss_encoder 238.8008, loss_discriminator 0.2479, loss_generator 73.1517, ade1 1.5833, fde1 3.5177, ade 1.4783, fde 3.0520
+
+************************* Validation, time 136.86 *************************
+loss_encoder 259.1790, loss_discriminator 0.1198, loss_generator 79.8897, ade1 1.6715, fde1 3.5792, ade 1.5641, fde 3.1354
+
+Epoch 29.000, lr 0.00100, time 1708.51
+loss_encoder 242.4111, loss_discriminator 0.2013, loss_generator 73.3978, ade1 1.5978, fde1 3.5665, ade 1.4911, fde 3.1007
+
+Epoch 30.000, lr 0.00100, time 1579.21
+loss_encoder 243.1370, loss_discriminator 0.2619, loss_generator 74.4367, ade1 1.5877, fde1 3.5736, ade 1.4760, fde 3.0876
+
+************************* Validation, time 139.22 *************************
+loss_encoder 262.7945, loss_discriminator 0.2975, loss_generator 72.6042, ade1 1.6965, fde1 3.6092, ade 1.5775, fde 3.1227
+
+Epoch 31.000, lr 0.00100, time 1718.62
+loss_encoder 245.0886, loss_discriminator 0.2226, loss_generator 73.4250, ade1 1.5937, fde1 3.5457, ade 1.4891, fde 3.0845
+
+Epoch 32.000, lr 0.00010, time 1588.36
+loss_encoder 242.8224, loss_discriminator 0.3142, loss_generator 72.4611, ade1 1.5977, fde1 3.5639, ade 1.4848, fde 3.0882
+
+************************* Validation, time 137.32 *************************
+loss_encoder 256.9591, loss_discriminator 0.3204, loss_generator 71.0153, ade1 1.6650, fde1 3.4798, ade 1.5581, fde 3.0530
+
+Epoch 33.000, lr 0.00010, time 1698.95
+loss_encoder 231.6146, loss_discriminator 0.2582, loss_generator 68.3425, ade1 1.5458, fde1 3.4366, ade 1.4493, fde 3.0106
+
+Epoch 34.000, lr 0.00010, time 1564.93
+loss_encoder 225.8079, loss_discriminator 0.1939, loss_generator 71.3827, ade1 1.5160, fde1 3.3897, ade 1.4241, fde 2.9706
+
+************************* Validation, time 137.89 *************************
+loss_encoder 248.7397, loss_discriminator 0.1610, loss_generator 77.3444, ade1 1.6190, fde1 3.4802, ade 1.5239, fde 3.0664
+
+Epoch 35.000, lr 0.00010, time 1687.01
+loss_encoder 227.7055, loss_discriminator 0.1850, loss_generator 73.0468, ade1 1.5248, fde1 3.4219, ade 1.4325, fde 2.9975
+
+Epoch 36.000, lr 0.00010, time 1549.87
+loss_encoder 224.0772, loss_discriminator 0.2221, loss_generator 72.7603, ade1 1.5046, fde1 3.3892, ade 1.4143, fde 2.9723
+
+************************* Validation, time 137.23 *************************
+loss_encoder 246.6487, loss_discriminator 0.2452, loss_generator 76.7750, ade1 1.6043, fde1 3.4645, ade 1.5099, fde 3.0550
+
+Epoch 37.000, lr 0.00010, time 1689.48
+loss_encoder 226.6071, loss_discriminator 0.2611, loss_generator 72.9680, ade1 1.5147, fde1 3.4063, ade 1.4246, fde 2.9885
+
+Epoch 38.000, lr 0.00010, time 1560.71
+loss_encoder 224.4623, loss_discriminator 0.2916, loss_generator 72.2133, ade1 1.5071, fde1 3.3863, ade 1.4180, fde 2.9705
+
+************************* Validation, time 137.56 *************************
+loss_encoder 246.2072, loss_discriminator 0.3130, loss_generator 76.9406, ade1 1.6022, fde1 3.4622, ade 1.5105, fde 3.0562
+
+Epoch 39.000, lr 0.00010, time 1703.66
+loss_encoder 222.8101, loss_discriminator 0.3109, loss_generator 72.5576, ade1 1.4994, fde1 3.3782, ade 1.4113, fde 2.9614
+
+Epoch 40.000, lr 0.00010, time 1557.23
+loss_encoder 223.3517, loss_discriminator 0.3119, loss_generator 73.2615, ade1 1.5023, fde1 3.3803, ade 1.4148, fde 2.9639
+
+************************* Validation, time 132.65 *************************
+loss_encoder 245.9761, loss_discriminator 0.3174, loss_generator 77.3302, ade1 1.6040, fde1 3.4641, ade 1.5123, fde 3.0554
+
+Epoch 41.000, lr 0.00010, time 1721.03
+loss_encoder 222.2108, loss_discriminator 0.3300, loss_generator 72.3713, ade1 1.4998, fde1 3.3835, ade 1.4115, fde 2.9609
+
+Epoch 42.000, lr 0.00010, time 1560.42
+loss_encoder 223.8782, loss_discriminator 0.3372, loss_generator 73.2782, ade1 1.5086, fde1 3.3910, ade 1.4201, fde 2.9620
+
+************************* Validation, time 132.82 *************************
+loss_encoder 245.5044, loss_discriminator 0.3292, loss_generator 77.9115, ade1 1.6031, fde1 3.4633, ade 1.5129, fde 3.0466
+
+Epoch 43.000, lr 0.00010, time 1721.10
+loss_encoder 224.7745, loss_discriminator 0.3392, loss_generator 73.5805, ade1 1.5108, fde1 3.4019, ade 1.4232, fde 2.9694
+
+Epoch 44.000, lr 0.00010, time 1576.22
+loss_encoder 223.9578, loss_discriminator 0.3494, loss_generator 73.3106, ade1 1.5073, fde1 3.3901, ade 1.4197, fde 2.9525
+
+************************* Validation, time 133.31 *************************
+loss_encoder 246.0020, loss_discriminator 0.3468, loss_generator 77.6858, ade1 1.6047, fde1 3.4701, ade 1.5152, fde 3.0439
+
+Epoch 45.000, lr 0.00010, time 1712.40
+loss_encoder 223.3366, loss_discriminator 0.3469, loss_generator 73.5430, ade1 1.5033, fde1 3.3841, ade 1.4185, fde 2.9462
+
+Epoch 46.000, lr 0.00010, time 1580.68
+loss_encoder 223.4798, loss_discriminator 0.3710, loss_generator 73.5743, ade1 1.5056, fde1 3.3921, ade 1.4215, fde 2.9526
+
+************************* Validation, time 133.42 *************************
+loss_encoder 245.4556, loss_discriminator 0.3940, loss_generator 77.7830, ade1 1.6020, fde1 3.4619, ade 1.5164, fde 3.0292
+
+Epoch 47.000, lr 0.00010, time 1711.36
+loss_encoder 222.9874, loss_discriminator 0.3820, loss_generator 73.6771, ade1 1.5018, fde1 3.3875, ade 1.4180, fde 2.9433
+
+Epoch 48.000, lr 0.00010, time 1578.30
+loss_encoder 223.8530, loss_discriminator 0.3773, loss_generator 74.0008, ade1 1.5044, fde1 3.3905, ade 1.4228, fde 2.9442
+
+************************* Validation, time 137.62 *************************
+loss_encoder 245.2460, loss_discriminator 0.3787, loss_generator 78.3600, ade1 1.6016, fde1 3.4587, ade 1.5179, fde 3.0196
+
+Epoch 49.000, lr 0.00010, time 1705.94
+loss_encoder 224.5086, loss_discriminator 0.3666, loss_generator 74.4060, ade1 1.5074, fde1 3.4005, ade 1.4271, fde 2.9486
+
+Epoch 50.000, lr 0.00010, time 1574.60
+loss_encoder 224.1220, loss_discriminator 0.3619, loss_generator 74.7403, ade1 1.5064, fde1 3.3950, ade 1.4265, fde 2.9402
+
+************************* Validation, time 133.00 *************************
+loss_encoder 245.9797, loss_discriminator 0.3865, loss_generator 78.8189, ade1 1.6052, fde1 3.4703, ade 1.5238, fde 3.0185
+
