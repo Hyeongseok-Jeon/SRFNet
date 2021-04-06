@@ -27,19 +27,19 @@ from torch.utils.data.distributed import DistributedSampler
 from utils import Logger, load_pretrain
 from mpi4py import MPI
 from torch import Tensor, nn
-# import SRFNet.model_lanegcn_GAN as model
+
+import SRFNet.model_lanegcn_GAN_latefus as model
 comm = MPI.COMM_WORLD
 hvd.init()
 torch.cuda.set_device(hvd.local_rank())
 
-
-root_path = os.path.dirname(os.path.abspath(__file__))
-# root_path = os.getcwd()
+# root_path = os.path.dirname(os.path.abspath(__file__))
+root_path = os.getcwd()
 sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="model_lanegcn_GAN", type=str, metavar="MODEL", help="model name"
+    "-m", "--model", default="model_lanegcn_GAN_lafefus", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -54,10 +54,11 @@ parser.add_argument(
 parser.add_argument(
     "--transfer", default=['encoder'], type=list
 )
-# parser.add_argument("--mode", default='client')
-# parser.add_argument("--port", default=52162)
+parser.add_argument("--mode", default='client')
+parser.add_argument("--port", default=52162)
 margin = 0.35
 equilibrium = 0.68
+
 
 def main():
     seed = hvd.rank()
@@ -132,7 +133,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
@@ -212,7 +213,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         loss_encoder = kl_loss + l1loss_trajectory
         loss_discriminator = (bce_dis_fake + bce_dis_real) * 0.5
         loss_generator = torch.sum(0.2 * l1loss_trajectory) + (1.0 - 0.2) * (bce_gen_fake)
-        
+
         train_dis = True
         train_dec = True
         if bce_dis_real < equilibrium - margin or bce_dis_fake < equilibrium - margin:
@@ -317,6 +318,7 @@ def sync(data):
         for i in range(len(data_list)):
             data[key] += data_list[i][key]
     return data
+
 
 if __name__ == "__main__":
     main()

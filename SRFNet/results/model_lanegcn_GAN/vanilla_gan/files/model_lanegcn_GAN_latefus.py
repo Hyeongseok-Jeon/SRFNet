@@ -13,11 +13,12 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.autograd import Variable
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long, Optimizer, StepLR, to_float
+from SRFNet.data import ArgoDataset, collate_fn
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR, to_float
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
-from model_maneuver_pred import get_model as get_manuever_model
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from SRFNet.model_maneuver_pred import get_model as get_manuever_model
+from SRFNet.model_lanegcn import get_model as get_baseline
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -48,8 +49,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 2
+config["val_batch_size"] = 2
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -103,21 +104,46 @@ class lanegcn_vanilla_gan(nn.Module):
     def __init__(self, config, args):
         super(lanegcn_vanilla_gan, self).__init__()
         self.config = config
+        self.args = args
+        self.args.case = 'lanegcn'
+        _, _, _, base_model, _, _, _, _ = get_baseline(args)
         _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
-        pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
+        pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained/") + '/36.000.ckpt')
+        pretrained_dict = pre_trained_weight['state_dict']
+        new_model_dict = base_model.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+        new_model_dict.update(pretrained_dict)
+        base_model.load_state_dict(new_model_dict)
+
+        pre_trained_weight = torch.load(os.path.join(root_path, "SRFNet/results/model_lanegcn/lanegcn") + '/32.000.ckpt')
         pretrained_dict = pre_trained_weight['state_dict']
         new_model_dict = maneuver_pred_net.state_dict()
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
         new_model_dict.update(pretrained_dict)
         maneuver_pred_net.load_state_dict(new_model_dict)
-        self.maneu_pred = maneuver_pred_net
 
-        self.encoder = EncodeNet(config, args)
-        self.ego_encoder = EgoEncodeNet(config)
+        self.maneu_pred = maneuver_pred_net
+        self.base_model = base_model
+
+        self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
         self.discriminator = DiscriminateNet(config)
 
     def forward(self, data):
+        cl_cands = to_float(gpu(data['cl_cands']))
+        cl_cands_target = [to_float(cl_cands[i][1]) for i in range(len(cl_cands))]
+        target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
+        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
+
+        init_pred_global = self.base_model(data)[0]
+        init_pred_global['reg'] = [init_pred_global['reg'][i][1:2,:,:,:] for i in range(len(init_pred_global['reg'] ))]
+
+        react_hidden = self.ego_react_encoder(ego_fut_traj, cl_cands_target, init_pred_global)
+
+
+
+
+
         actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
         egos = [actor_idcs[i][0].unsqueeze(dim=0) for i in range(len(actor_idcs))]
         targets = [actor_idcs[i][1].unsqueeze(dim=0) for i in range(len(actor_idcs))]
@@ -169,6 +195,32 @@ class lanegcn_vanilla_gan(nn.Module):
         return target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego
 
 
+def actor_gather(actors):
+    batch_size = len(actors)
+    num_actors = [len(x) for x in actors]
+    actors = [x.transpose(1, 2) for x in actors]
+    actors = torch.cat(actors, 0)
+    mask = torch.zeros_like(actors)
+    actors_inter_cat = []
+    for i in range(5):
+        if i == 0:
+            element = mask.clone()
+            element[:, :, -1] = actors[:, :, 0]
+            actors_inter_cat.append(element)
+        else:
+            element = mask.clone()
+            element[:, :, -5 * i:] = actors[:, :, :5 * i]
+            actors_inter_cat.append(element)
+
+    actor_idcs = []
+    count = 0
+    for i in range(batch_size):
+        idcs = torch.arange(count, count + num_actors[i]).to(actors.device)
+        actor_idcs.append(idcs)
+        count = count + num_actors[i]
+    return actors, actor_idcs, actors_inter_cat
+
+
 def feat_to_global(targets, rot, orig, ctrs):
     batch_num = len(targets)
     targets_mod = [torch.zeros_like(targets[i])[0, :2, :] for i in range(batch_num)]
@@ -182,47 +234,47 @@ def feat_to_global(targets, rot, orig, ctrs):
 
     return targets_mod
 
-
-# target shape = (1, 3, 20)
-class EncodeNet(nn.Module):
-    def __init__(self, config, args):
-        super(EncodeNet, self).__init__()
-        self.config = config
-        self.actor_net = ActorNet(config)
-        self.map_net = MapNet(config)
-
-        self.a2m = A2M(config)
-        self.m2m = M2M(config)
-        self.m2a = M2A(config)
-        self.a2a = A2A(config)
-
-    def forward(self, data):
-        actors, actor_idcs, _ = actor_gather(gpu(data["feats"]))
-
-        actors = self.actor_net(actors)
-        graph = graph_gather(to_long(gpu(data["graph"])))
-        nodes, node_idcs, node_ctrs = self.map_net(graph)
-        actor_ctrs = gpu(data["ctrs"])
-
-        nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
-        nodes = self.m2m(nodes, graph)
-        actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
-        actors = self.a2a(actors, actor_idcs, actor_ctrs)
-        return actors
-
-
-class EgoEncodeNet(nn.Module):
+class EgoReactEncodeNet(nn.Module):
     def __init__(self, config):
-        super(EgoEncodeNet, self).__init__()
+        super(EgoReactEncodeNet, self).__init__()
         self.config = config
         self.mu_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
         self.log_varience_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
 
-    def forward(self, hidden_ego):
+    def forward(self, ego_fut_traj, cl_cands_target, init_pred_global):
+
+
         mus = self.mu_gen(hidden_ego)
         log_vars = self.log_varience_gen(hidden_ego)
 
         return [mus, log_vars]
+
+    def reform(self, ego_fut_traj, cl_cands_target, init_pred_global):
+        for i in range(len(cl_cands_target)):
+            if len(cl_cands_target[i]) == 1:
+                cl_cand = cl_cands_target[i][0]
+            else:
+                cl_cand = get_nearest_cl(cl_cands_target[i], init_pred_global['reg'][i])
+
+        nearest_cl_ego =
+
+    def get_nearest_cl(self, cl_cands_target_tmp, init_pred_global_tmp):
+        dist = []
+        for i in range(len(cl_cands_target_tmp)):
+            cl_tmp = cl_cands_target_tmp[i]
+            cl_tmp_dense = get_cl_dense(cl_tmp)
+            for j in range(30):
+                a = cl_tmp[:,:30,:] - init_pred_global_tmp[0,:,j:j+1,:]
+            err = torch.abs(cl_tmp[:,:30,:] - init_pred_global_tmp[0])
+                dist.append(torch.sum(err))
+
+            cl_tmp = torch.repeat_interleave(cl_cands_target_tmp[i].unsqueeze(dim=0), init_pred_global['reg'][i].shape[1], dim = 0)
+
+    def get_cl_dense(self, cl_tmp):
+        cl_mod = torch.zeros_like(torch.repeat_interleave(cl_tmp, 4, dim=0))
+        for i in range(cl_tmp.shape[0]):
+            cl_mod[i,:] = cl_tmp[i,:]
+            cl_mod[i+1,:] = cl_tmp[i,:] + (cl_tmp[i+1,:] - cl_tmp[i,:]
 
 
 class GenerateNet(nn.Module):
@@ -359,344 +411,6 @@ def graph_gather(graphs):
             ]
             graph[k1][k2] = torch.cat(temp)
     return graph
-
-
-class ActorNet(nn.Module):
-    def __init__(self, config):
-        super(ActorNet, self).__init__()
-        self.config = config
-        norm = "GN"
-        ng = 1
-
-        n_in = 3
-        n_out = [32, 64, 128]
-        blocks = [Res1d, Res1d, Res1d]
-        num_blocks = [2, 2, 2]
-
-        groups = []
-        for i in range(len(num_blocks)):
-            group = []
-            if i == 0:
-                group.append(blocks[i](n_in, n_out[i], norm=norm, ng=ng))
-            else:
-                group.append(blocks[i](n_in, n_out[i], stride=2, norm=norm, ng=ng))
-
-            for j in range(1, num_blocks[i]):
-                group.append(blocks[i](n_out[i], n_out[i], norm=norm, ng=ng))
-            groups.append(nn.Sequential(*group))
-            n_in = n_out[i]
-        self.groups = nn.ModuleList(groups)
-
-        n = config["n_actor"]
-        lateral = []
-        for i in range(len(n_out)):
-            lateral.append(Conv1d(n_out[i], n, norm=norm, ng=ng, act=False))
-        self.lateral = nn.ModuleList(lateral)
-
-        self.output = Res1d(n, n, norm=norm, ng=ng)
-
-    def forward(self, actors: Tensor) -> Tensor:
-        out = actors
-
-        outputs = []
-        for i in range(len(self.groups)):
-            out = self.groups[i](out)
-            outputs.append(out)
-
-        out = self.lateral[-1](outputs[-1])
-        for i in range(len(outputs) - 2, -1, -1):
-            out = F.interpolate(out, scale_factor=2, mode="linear", align_corners=False)
-            out = out + self.lateral[i](outputs[i])
-
-        out = self.output(out)[:, :, -1]
-        return out
-
-
-class MapNet(nn.Module):
-    """
-    Map Graph feature extractor with LaneGraphCNN
-    """
-
-    def __init__(self, config):
-        super(MapNet, self).__init__()
-        self.config = config
-        n_map = config["n_map"]
-        norm = "GN"
-        ng = 1
-
-        self.input = nn.Sequential(
-            nn.Linear(2, n_map),
-            nn.ReLU(inplace=True),
-            Linear(n_map, n_map, norm=norm, ng=ng, act=False),
-        )
-        self.seg = nn.Sequential(
-            nn.Linear(2, n_map),
-            nn.ReLU(inplace=True),
-            Linear(n_map, n_map, norm=norm, ng=ng, act=False),
-        )
-
-        keys = ["ctr", "norm", "ctr2", "left", "right"]
-        for i in range(config["num_scales"]):
-            keys.append("pre" + str(i))
-            keys.append("suc" + str(i))
-
-        fuse = dict()
-        for key in keys:
-            fuse[key] = []
-
-        for i in range(4):
-            for key in fuse:
-                if key in ["norm"]:
-                    fuse[key].append(nn.GroupNorm(gcd(ng, n_map), n_map))
-                elif key in ["ctr2"]:
-                    fuse[key].append(Linear(n_map, n_map, norm=norm, ng=ng, act=False))
-                else:
-                    fuse[key].append(nn.Linear(n_map, n_map, bias=False))
-
-        for key in fuse:
-            fuse[key] = nn.ModuleList(fuse[key])
-        self.fuse = nn.ModuleDict(fuse)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, graph):
-        if (
-                len(graph["feats"]) == 0
-                or len(graph["pre"][-1]["u"]) == 0
-                or len(graph["suc"][-1]["u"]) == 0
-        ):
-            temp = graph["feats"]
-            return (
-                temp.new().resize_(0),
-                [temp.new().long().resize_(0) for x in graph["node_idcs"]],
-                temp.new().resize_(0),
-            )
-
-        ctrs = torch.cat(graph["ctrs"], 0)
-        feat = self.input(ctrs)
-        feat = feat + self.seg(graph["feats"])
-        feat = self.relu(feat)
-
-        """fuse map"""
-        res = feat
-        for i in range(len(self.fuse["ctr"])):
-            temp = self.fuse["ctr"][i](feat)
-            for key in self.fuse:
-                if key.startswith("pre") or key.startswith("suc"):
-                    k1 = key[:3]
-                    k2 = int(key[3:])
-                    temp.index_add_(
-                        0,
-                        graph[k1][k2]["u"],
-                        self.fuse[key][i](feat[graph[k1][k2]["v"]]),
-                    )
-
-            if len(graph["left"]["u"] > 0):
-                temp.index_add_(
-                    0,
-                    graph["left"]["u"],
-                    self.fuse["left"][i](feat[graph["left"]["v"]]),
-                )
-            if len(graph["right"]["u"] > 0):
-                temp.index_add_(
-                    0,
-                    graph["right"]["u"],
-                    self.fuse["right"][i](feat[graph["right"]["v"]]),
-                )
-
-            feat = self.fuse["norm"][i](temp)
-            feat = self.relu(feat)
-
-            feat = self.fuse["ctr2"][i](feat)
-            feat = feat + res
-            feat = self.relu(feat)
-            res = feat
-        return feat, graph["idcs"], graph["ctrs"]
-
-
-class A2M(nn.Module):
-    """
-    Actor to Map Fusion:  fuses real-time traffic information from
-    actor nodes to lane nodes
-    """
-
-    def __init__(self, config):
-        super(A2M, self).__init__()
-        self.config = config
-        n_map = config["n_map"]
-        norm = "GN"
-        ng = 1
-
-        """fuse meta, static, dyn"""
-        self.meta = Linear(n_map + 4, n_map, norm=norm, ng=ng)
-        att = []
-        for i in range(2):
-            att.append(Att(n_map, config["n_actor"]))
-        self.att = nn.ModuleList(att)
-
-    def forward(self, feat: Tensor, graph: Dict[str, Union[List[Tensor], Tensor, List[Dict[str, Tensor]], Dict[str, Tensor]]], actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor]) -> Tensor:
-        """meta, static and dyn fuse using attention"""
-        meta = torch.cat(
-            (
-                graph["turn"],
-                graph["control"].unsqueeze(1),
-                graph["intersect"].unsqueeze(1),
-            ),
-            1,
-        )
-        feat = self.meta(torch.cat((feat, meta), 1))
-
-        for i in range(len(self.att)):
-            feat = self.att[i](
-                feat,
-                graph["idcs"],
-                graph["ctrs"],
-                actors,
-                actor_idcs,
-                actor_ctrs,
-                self.config["actor2map_dist"],
-            )
-        return feat
-
-
-class M2M(nn.Module):
-    """
-    The lane to lane block: propagates information over lane
-            graphs and updates the features of lane nodes
-    """
-
-    def __init__(self, config):
-        super(M2M, self).__init__()
-        self.config = config
-        n_map = config["n_map"]
-        norm = "GN"
-        ng = 1
-
-        keys = ["ctr", "norm", "ctr2", "left", "right"]
-        for i in range(config["num_scales"]):
-            keys.append("pre" + str(i))
-            keys.append("suc" + str(i))
-
-        fuse = dict()
-        for key in keys:
-            fuse[key] = []
-
-        for i in range(4):
-            for key in fuse:
-                if key in ["norm"]:
-                    fuse[key].append(nn.GroupNorm(gcd(ng, n_map), n_map))
-                elif key in ["ctr2"]:
-                    fuse[key].append(Linear(n_map, n_map, norm=norm, ng=ng, act=False))
-                else:
-                    fuse[key].append(nn.Linear(n_map, n_map, bias=False))
-
-        for key in fuse:
-            fuse[key] = nn.ModuleList(fuse[key])
-        self.fuse = nn.ModuleDict(fuse)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, feat: Tensor, graph: Dict) -> Tensor:
-        """fuse map"""
-        res = feat
-        for i in range(len(self.fuse["ctr"])):
-            temp = self.fuse["ctr"][i](feat)
-            for key in self.fuse:
-                if key.startswith("pre") or key.startswith("suc"):
-                    k1 = key[:3]
-                    k2 = int(key[3:])
-                    temp.index_add_(
-                        0,
-                        graph[k1][k2]["u"],
-                        self.fuse[key][i](feat[graph[k1][k2]["v"]]),
-                    )
-
-            if len(graph["left"]["u"] > 0):
-                temp.index_add_(
-                    0,
-                    graph["left"]["u"],
-                    self.fuse["left"][i](feat[graph["left"]["v"]]),
-                )
-            if len(graph["right"]["u"] > 0):
-                temp.index_add_(
-                    0,
-                    graph["right"]["u"],
-                    self.fuse["right"][i](feat[graph["right"]["v"]]),
-                )
-
-            feat = self.fuse["norm"][i](temp)
-            feat = self.relu(feat)
-
-            feat = self.fuse["ctr2"][i](feat)
-            feat = feat + res
-            feat = self.relu(feat)
-            res = feat
-        return feat
-
-
-class M2A(nn.Module):
-    """
-    The lane to actor block fuses updated
-        map information from lane nodes to actor nodes
-    """
-
-    def __init__(self, config):
-        super(M2A, self).__init__()
-        self.config = config
-        norm = "GN"
-        ng = 1
-
-        n_actor = config["n_actor"]
-        n_map = config["n_map"]
-
-        att = []
-        for i in range(2):
-            att.append(Att(n_actor, n_map))
-        self.att = nn.ModuleList(att)
-
-    def forward(self, actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor], nodes: Tensor, node_idcs: List[Tensor], node_ctrs: List[Tensor]) -> Tensor:
-        for i in range(len(self.att)):
-            actors = self.att[i](
-                actors,
-                actor_idcs,
-                actor_ctrs,
-                nodes,
-                node_idcs,
-                node_ctrs,
-                self.config["map2actor_dist"],
-            )
-        return actors
-
-
-class A2A(nn.Module):
-    """
-    The actor to actor block performs interactions among actors.
-    """
-
-    def __init__(self, config):
-        super(A2A, self).__init__()
-        self.config = config
-        norm = "GN"
-        ng = 1
-
-        n_actor = config["n_actor"]
-        n_map = config["n_map"]
-
-        att = []
-        for i in range(2):
-            att.append(Att(n_actor, n_actor))
-        self.att = nn.ModuleList(att)
-
-    def forward(self, actors: Tensor, actor_idcs: List[Tensor], actor_ctrs: List[Tensor]) -> Tensor:
-        for i in range(len(self.att)):
-            actors = self.att[i](
-                actors,
-                actor_idcs,
-                actor_ctrs,
-                actors,
-                actor_idcs,
-                actor_ctrs,
-                self.config["actor2actor_dist"],
-            )
-        return actors
 
 
 class ReactNet(nn.Module):
