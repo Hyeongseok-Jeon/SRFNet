@@ -189,31 +189,19 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         epoch += epoch_per_batch
         data = dict(data)
 
-        output, dis, dis_layer, mus, log_vars, target_gt = net(data)
-        traj_gt = target_gt
-        traj_pred = output[0]['reg']
-        layer_gt = [dis_layer[0][i:i+1,:] for i in range(len(traj_gt))]
-        layer_pred = [dis_layer[1][6*i:6*(i+1),:] for i in range(len(traj_gt))]
-        label_gt = [dis[0][i] for i in range(len(traj_gt))]
-        label_pred = [dis[1][6*i:6*(i+1),0] for i in range(len(traj_gt))]
-        label_sample = [dis[2][6*i:6*(i+1),0] for i in range(len(traj_gt))]
-        mus = [mus[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
-        variances = [log_vars[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
-
+        output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
         loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
         reconstruction_loss = loss_out['reconstruction_loss']
         kl_loss = loss_out['kl_loss']
         mae_hidden_loss = loss_out['mae_hidden_loss']
-        bce_gen_sample = loss_out['bce_gen_sample']
-        bce_gen_pred = loss_out['bce_gen_pred']
-        bce_dis_sample = loss_out['bce_dis_sample']
         bce_dis_pred = loss_out['bce_dis_pred']
         bce_dis_gt = loss_out['bce_dis_gt']
 
         loss_encoder = kl_loss + mae_hidden_loss
-        loss_discriminator = bce_dis_gt + bce_dis_sample
-        loss_generator = 0.1 * mae_hidden_loss + (1.0 - 0.1) * (bce_gen_pred + bce_gen_sample)
+        loss_encoder.backward()
+        opt_enc.zero_grad()
+        lr_enc = opt_enc.step(epoch)
 
         train_dis = True
         train_dec = True
@@ -225,33 +213,37 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             train_dis = True
             train_dec = True
 
-        opt_enc.opt.synchronize()
-        opt_gen.opt.synchronize()
-        opt_dis.opt.synchronize()
-
-        opt_enc.zero_grad()
-        opt_gen.zero_grad()
-        opt_dis.zero_grad()
-
-        loss_encoder.backward(retain_graph=True)
         if train_dec:
-            loss_generator.backward(retain_graph=True)
+            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
+            loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
+
+            reconstruction_loss = loss_out['reconstruction_loss']
+            kl_loss = loss_out['kl_loss']
+            mae_hidden_loss = loss_out['mae_hidden_loss']
+            bce_gen_sample = loss_out['bce_gen_sample']
+            bce_gen_pred = loss_out['bce_gen_pred']
+
+            loss_generator = 0.1 * mae_hidden_loss + (1.0 - 0.1) * (bce_gen_pred + bce_gen_sample)
+            loss_generator.backward()
+            opt_gen.zero_grad()
+            lr_gen = opt_gen.step(epoch)
+
         if train_dis:
+            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
+            loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
+
+            reconstruction_loss = loss_out['reconstruction_loss']
+            bce_dis_sample = loss_out['bce_dis_sample']
+            bce_dis_gt = loss_out['bce_dis_gt']
+
+            loss_discriminator = bce_dis_gt + bce_dis_sample
             loss_discriminator.backward()
-
-        with opt_enc.opt.skip_synchronize():
-            lr_enc = opt_enc.step(epoch)
-        if train_dec:
-            with opt_gen.opt.skip_synchronize():
-                lr_gen = opt_gen.step(epoch)
-        if train_dis:
-            with opt_dis.opt.skip_synchronize():
-                lr_dis = opt_dis.step(epoch)
+            opt_dis.zero_grad()
+            lr_gen = opt_dis.step(epoch)
 
         out_added = output[0]
         post_out = post_process(out_added, data)
         post_process.append(metrics, loss_out, post_out)
-        net.zero_grad()
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
@@ -281,9 +273,9 @@ def val(config, data_loader, net, loss, post_process, epoch):
     with torch.no_grad():
         for i, data in enumerate(data_loader):
             data = dict(data)
-            target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego = net(data)
-            loss_out = loss(target_gt_traj, target_fut_traj, dis_real, dis_fake, hidden_real, hidden_fake, mu_hidden_ego, log_var_hidden_ego, data)
-            out_added = target_fut_traj
+            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
+            loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
+            out_added =  output[0]
             post_out = post_process(out_added, data)
             post_process.append(metrics, loss_out, post_out)
 
@@ -320,6 +312,19 @@ def sync(data):
             data[key] += data_list[i][key]
     return data
 
+def get_out(net, data):
+    output, dis, dis_layer, mus, log_vars, target_gt = net(data)
+    traj_gt = target_gt
+    traj_pred = output[0]['reg']
+    layer_gt = [dis_layer[0][i:i + 1, :] for i in range(len(traj_gt))]
+    layer_pred = [dis_layer[1][6 * i:6 * (i + 1), :] for i in range(len(traj_gt))]
+    label_gt = [dis[0][i] for i in range(len(traj_gt))]
+    label_pred = [dis[1][6 * i:6 * (i + 1), 0] for i in range(len(traj_gt))]
+    label_sample = [dis[2][6 * i:6 * (i + 1), 0] for i in range(len(traj_gt))]
+    mus = [mus[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
+    variances = [log_vars[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
+
+    return output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances
 
 if __name__ == "__main__":
     main()
