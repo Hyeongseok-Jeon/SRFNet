@@ -188,7 +188,6 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
-
         output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
         loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
@@ -235,7 +234,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             reconstruction_loss = loss_out['reconstruction_loss']
             bce_dis_sample = loss_out['bce_dis_sample']
             bce_dis_gt = loss_out['bce_dis_gt']
-            
+
             opt_dis.zero_grad()
             loss_discriminator = bce_dis_gt + bce_dis_sample
             loss_discriminator.backward()
