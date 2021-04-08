@@ -49,8 +49,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 32
-config["val_batch_size"] = 32
+config["batch_size"] = 96
+config["val_batch_size"] = 96
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
