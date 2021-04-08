@@ -198,9 +198,9 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         bce_dis_pred = loss_out['bce_dis_pred']
         bce_dis_gt = loss_out['bce_dis_gt']
 
+        opt_enc.zero_grad()
         loss_encoder = kl_loss + mae_hidden_loss
         loss_encoder.backward()
-        opt_enc.zero_grad()
         lr_enc = opt_enc.step(epoch)
 
         train_dis = True
@@ -223,9 +223,9 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             bce_gen_sample = loss_out['bce_gen_sample']
             bce_gen_pred = loss_out['bce_gen_pred']
 
+            opt_gen.zero_grad()
             loss_generator = 0.1 * mae_hidden_loss + (1.0 - 0.1) * (bce_gen_pred + bce_gen_sample)
             loss_generator.backward()
-            opt_gen.zero_grad()
             lr_gen = opt_gen.step(epoch)
 
         if train_dis:
@@ -235,10 +235,10 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             reconstruction_loss = loss_out['reconstruction_loss']
             bce_dis_sample = loss_out['bce_dis_sample']
             bce_dis_gt = loss_out['bce_dis_gt']
-
+            
+            opt_dis.zero_grad()
             loss_discriminator = bce_dis_gt + bce_dis_sample
             loss_discriminator.backward()
-            opt_dis.zero_grad()
             lr_gen = opt_dis.step(epoch)
 
         out_added = output[0]
