@@ -129,45 +129,53 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         self.generator = GenerateNet(config)
         self.discriminator = DiscriminateNet(config)
 
-    def forward(self, data):
-        cl_cands = to_float(gpu(data['cl_cands']))
-        cl_cands_target = [to_float(cl_cands[i][1]) for i in range(len(cl_cands))]
-        target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
-        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
-        target_hist_traj = feat_to_global(gpu(data['feats']), gpu(data['rot']), gpu(data['orig']), gpu(data['ctrs']))
 
-        init_pred_global = self.base_model(data)
-        init_pred_global_con = init_pred_global[0]
-        init_pred_global_con['reg'] = [init_pred_global_con['reg'][i][1:2, :, :, :] for i in range(len(init_pred_global_con['reg']))]
+    def forward(self, data, mod):
+        with torch.no_grad():
+            batch_num = len(data['gt_preds'])
+            init_pred_global = self.base_model(data)
+            init_pred_global_vae = init_pred_global.copy()
+        if mod == 'enc':
+            mus_enc, log_vars = self.ego_react_encoder(data, init_pred_global)
+            noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            delta = self.generator(mus_enc, log_vars, noise, batch_num)
+            init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+            [dis_real, dis_pred], [dis_layer_real, dis_layer_pred] = self.discriminator(data, init_pred_global, batch_num)
+            noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            delta = self.generator(0, 1, noise_vae, batch_num)
+            init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+            [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
+            output_pred = init_pred_global
+            target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
 
-        mus_enc, log_vars = self.ego_react_encoder(ego_fut_traj, cl_cands_target, init_pred_global_con)
-        vars = [torch.exp(log_vars[i] * 0.5) for i in range(len(log_vars))]
-        mus = torch.cat(mus_enc, dim=1)
-        vars = torch.cat(vars, dim=1)
+        elif mod == 'gen':
+            with torch.no_grad():
+                mus_enc, log_vars = self.ego_react_encoder(data, init_pred_global)
+                noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            delta = self.generator(mus_enc, log_vars, noise, batch_num)
+            init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+            [dis_real, dis_pred], [dis_layer_real, dis_layer_pred] = self.discriminator(data, init_pred_global, batch_num)
+            noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            delta = self.generator(0, 1, noise_vae, batch_num)
+            init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+            [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
+            output_pred = init_pred_global
+            target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
 
-        noise = Variable(torch.randn(mus.shape).cuda(), requires_grad=True)
-        noise_vae = noise * vars + mus
-
-        delta = self.generator(noise_vae)
-        delta = [torch.transpose(delta, 0, 1)[6 * i: 6 * (i + 1), :, :].unsqueeze(dim=0) for i in range(len(ego_fut_traj))]
-
-        output_pred = init_pred_global
-        output_pred[0]['reg'] = [output_pred[0]['reg'][i] + delta[i] for i in range(len(ego_fut_traj))]
-
-        tot_traj_real = [torch.transpose(torch.cat([target_hist_traj[i], target_gt_traj[i][0]], dim=0).unsqueeze(dim=0), 1, 2) for i in range(len(cl_cands))]
-        tot_traj_pred = [torch.transpose(torch.cat([torch.repeat_interleave(target_hist_traj[i].unsqueeze(dim=0), 6, dim=0), output_pred[0]['reg'][i][0]], dim=1), 1, 2) for i in range(len(cl_cands))]
-        dis_real, dis_layer_real = self.discriminator(tot_traj_real, True)
-        dis_pred, dis_layer_pred = self.discriminator(tot_traj_pred, True)
-
-        noise_vae = Variable(torch.randn(mus.shape).cuda(), requires_grad=True)
-        delta = self.generator(noise_vae)
-        delta = [torch.transpose(delta, 0, 1)[6 * i: 6 * (i + 1), :, :].unsqueeze(dim=0) for i in range(len(ego_fut_traj))]
-
-        output_sample = init_pred_global_con
-        output_sample['reg'] = [output_sample['reg'][i] + delta[i] for i in range(len(ego_fut_traj))]
-
-        tot_traj_pred = [torch.transpose(torch.cat([torch.repeat_interleave(target_hist_traj[i].unsqueeze(dim=0), 6, dim=0), output_sample['reg'][i][0]], dim=1), 1, 2) for i in range(len(cl_cands))]
-        dis_sample = self.discriminator(tot_traj_pred, False)
+        else:
+            with torch.no_grad():
+                mus_enc, log_vars = self.ego_react_encoder(data, init_pred_global)
+                noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+                delta = self.generator(mus_enc, log_vars, noise, batch_num)
+                init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+            [dis_real, dis_pred], [dis_layer_real, dis_layer_pred] = self.discriminator(data, init_pred_global, batch_num)
+            with torch.no_grad():
+                noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+                delta = self.generator(0, 1, noise_vae, batch_num)
+                init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+            [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
+            output_pred = init_pred_global
+            target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
 
         return output_pred, [dis_real, dis_pred, dis_sample], [dis_layer_real, dis_layer_pred], mus_enc, log_vars, target_gt_traj
 
@@ -195,8 +203,14 @@ class EgoReactEncodeNet(nn.Module):
         self.mu_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
         self.log_varience_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
 
-    def forward(self, ego_fut_traj, cl_cands_target, init_pred_global):
-        data = self.reform(ego_fut_traj, cl_cands_target, init_pred_global)
+    def forward(self, data, init_pred_global):
+        init_pred_global_con = init_pred_global[0]
+        init_pred_global_con['reg'] = [init_pred_global_con['reg'][i][1:2, :, :, :] for i in range(len(init_pred_global_con['reg']))]
+
+        cl_cands = to_float(gpu(data['cl_cands']))
+        cl_cands_target = [to_float(cl_cands[i][1]) for i in range(len(cl_cands))]
+        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
+        data = self.reform(ego_fut_traj, cl_cands_target, init_pred_global_con)
         data_cat = torch.cat([data[i].view(-1, 204) for i in range(len(data))], dim=0)
 
         hid = F.relu(self.enc1(data_cat))
@@ -238,11 +252,7 @@ class EgoReactEncodeNet(nn.Module):
             sur_feat = torch.cat([torch.cat([sur_feat_1[i], sur_disp[i]], dim=1).unsqueeze(dim=0) for i in range(6)], dim=0)
 
             ego_pos = ego_fut
-            try:
-                ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
-            except:
-                print(cl_cand)
-                print(ego_pos)
+            ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
             ego_dist, ego_idx = torch.min(ego_dists, dim=0)
             ego_disp = cl_cand[ego_idx] - ego_pos
             ego_feat_1 = mask.clone()
@@ -294,12 +304,24 @@ class GenerateNet(nn.Module):
         self.x_gen = nn.Linear(2 * config['n_actor'], 1)
         self.y_gen = nn.Linear(2 * config['n_actor'], 1)
 
-    def forward(self, noise_vae):
+    def forward(self, mus_enc, log_vars, noise, batch_num):
+        if mus_enc != 0:
+            vars = [torch.exp(log_vars[i] * 0.5) for i in range(len(log_vars))]
+            mus = torch.cat(mus_enc, dim=1)
+            vars = torch.cat(vars, dim=1)
+
+        else:
+            vars = 1
+            mus = 0
+        noise_vae = noise * vars + mus
+
         out = self.lstm(noise_vae)[0]
         x_out = self.x_gen(out)
         y_out = self.y_gen(out)
+        delta = torch.cat([x_out, y_out], dim=-1)
+        delta = [torch.transpose(delta, 0, 1)[6 * i: 6 * (i + 1), :, :].unsqueeze(dim=0) for i in range(batch_num)]
 
-        return torch.cat([x_out, y_out], dim=-1)
+        return delta
 
 
 class DiscriminateNet(nn.Module):
@@ -342,23 +364,36 @@ class DiscriminateNet(nn.Module):
         self.conv1d = nn.Sequential(*conv1d)
         self.out = nn.Linear(in_channel[-1], 1)
 
-    def forward(self, tot_trajectory, get_hidden):
+    def forward(self, data, init_pred_global, batch_num):
+        target_hist_traj = feat_to_global(gpu(data['feats']), gpu(data['rot']), gpu(data['orig']), gpu(data['ctrs']))
+        target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
+
+        tot_traj_real = [torch.transpose(torch.cat([target_hist_traj[i], target_gt_traj[i][0]], dim=0).unsqueeze(dim=0), 1, 2) for i in range(batch_num)]
+        tot_traj_pred = [torch.transpose(torch.cat([torch.repeat_interleave(target_hist_traj[i].unsqueeze(dim=0), 6, dim=0), init_pred_global[0]['reg'][i][0]], dim=1), 1, 2) for i in range(batch_num)]
+
+        tot_traj_cands = [tot_traj_real, tot_traj_pred]
+        outs = []
+        hid = []
+        for i in range(2):
+            tot_trajectory = tot_traj_cands[i]
         # len(tot_trajectory) = batch_num
         # tot_trajectory.shape = (l, 2, 50) l=1 if traj = real, l = 6 if traj = fake
-        cat_trajectory = torch.cat(tot_trajectory, dim=0)
-        tot_displacement = torch.zeros_like(cat_trajectory)
-        tot_displacement[:, :, 1:] = cat_trajectory[:, :, 1:] - cat_trajectory[:, :, :-1]
-        tot_displacement = torch.transpose(torch.transpose(tot_displacement, 1, 2), 0, 1)
+            cat_trajectory = torch.cat(tot_trajectory, dim=0)
+            tot_displacement = torch.zeros_like(cat_trajectory)
+            tot_displacement[:, :, 1:] = cat_trajectory[:, :, 1:] - cat_trajectory[:, :, :-1]
+            tot_displacement = torch.transpose(torch.transpose(tot_displacement, 1, 2), 0, 1)
 
-        seq_emb, _ = self.discriminator(tot_displacement)
-        seq_emb = self.relu6(torch.transpose(torch.transpose(seq_emb, 0, 1), 1, 2))
+            seq_emb, _ = self.discriminator(tot_displacement)
+            seq_emb = self.relu6(torch.transpose(torch.transpose(seq_emb, 0, 1), 1, 2))
 
-        hid = self.conv1d(seq_emb).squeeze()
-        outs = self.sigmoid(self.out(self.relu6(hid)))
-        if get_hidden:
-            return outs, hid
-        else:
-            return outs
+            hid_tmp = self.conv1d(seq_emb).squeeze()
+            outs_tmp = self.sigmoid(self.out(self.relu6(hid_tmp)))
+
+            outs.append(outs_tmp)
+            hid.append(hid_tmp)
+
+        return outs, hid
+
 
 
 class Loss(nn.Module):
