@@ -48,8 +48,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 4
-config["val_batch_size"] = 4
+config["batch_size"] = 32
+config["val_batch_size"] = 32
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -116,9 +116,9 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
         self.maneu_pred = maneuver_pred_net
 
-        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
-        self.generator = GenerateNet(config).cuda()
-        self.discriminator = DiscriminateNet(config).cuda()
+        self.ego_react_encoder = EgoReactEncodeNet(config)
+        self.generator = GenerateNet(config)
+        self.discriminator = DiscriminateNet(config)
 
     def forward(self, data):
         cl_cands = to_float(gpu(data['cl_cands']))
@@ -197,7 +197,7 @@ class EgoReactEncodeNet(nn.Module):
     def __init__(self, config):
         super(EgoReactEncodeNet, self).__init__()
         self.config = config
-        self.enc1 = nn.Linear(204, config['n_actor']).cuda()
+        self.enc1 = nn.Linear(204, config['n_actor'])
         self.enc2 = nn.Linear(config['n_actor'], config['n_actor'])
         self.mu_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
         self.log_varience_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])

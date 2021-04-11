@@ -213,6 +213,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             train_dec = True
 
         if train_dec:
+            opt_gen.opt.synchronize()
             output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
             loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
@@ -228,6 +229,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             lr_gen = opt_gen.step(epoch)
 
         if train_dis:
+            opt_dis.opt.synchronize()
             output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
             loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
