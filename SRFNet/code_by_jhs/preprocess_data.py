@@ -67,10 +67,10 @@ def main():
     config["train_split"] = os.path.join(
         root_path, "LaneGCN","dataset/train/data"
     )
-    config["val_split"] = os.path.join(root_path, "LaneGCN","dataset/val/data")
+    config["val_split"] = os.path.join(root_path, "LaneGCN", "dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 32
-    config["val_batch_size"] = 32
+    config["batch_size"] = 16
+    config["val_batch_size"] = 16
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
@@ -401,7 +401,7 @@ def reform(ego_fut_traj, cl_cands_target, init_pred_global):
 
     i = 0
     if len(cl_cands_target) == 1:
-        cl_cand = torch.from_numpy(cl_cands_target[i][0])
+        cl_cand = torch.from_numpy(cl_cands_target[i])
     else:
         cl_cand = get_nearest_cl([torch.from_numpy(cl_cands_target[j]) for j in range(len(cl_cands_target))], init_pred_global)
     cl_cand = cl_cand[:100]
