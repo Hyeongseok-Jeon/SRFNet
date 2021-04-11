@@ -36,9 +36,8 @@ class lanegcn(nn.Module):
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-
-        actors, actor_idcs, _ = actor_gather([torch.from_numpy(data['feats'][i]) for i in range(len(data['feats']))])
-        actor_ctrs = [torch.from_numpy(data['ctrs'][i]) for i in range(len(data['ctrs']))]
+        actors, actor_idcs, _ = actor_gather([data['feats'][i] for i in range(len(data['feats']))])
+        actor_ctrs = [data['ctrs'][i] for i in range(len(data['ctrs']))]
 
         '''
         actors : N x 3 x 20 (N : number of vehicles in every batches)
@@ -64,7 +63,7 @@ class lanegcn(nn.Module):
         actors : N x 128 (N : number of vehicles in every batches)
         '''
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = [torch.from_numpy(data['rot'][i]) for i in range(len(data['rot']))], [torch.from_numpy(data['orig'][i]) for i in range(len(data['orig']))]
+        rot, orig = [data['rot'][i] for i in range(len(data['rot']))], [data['orig'][i] for i in range(len(data['orig']))]
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
@@ -114,23 +113,23 @@ def graph_gather(graphs):
 
     graph = dict()
     graph["idcs"] = node_idcs
-    graph["ctrs"] = [torch.from_numpy(x["ctrs"]) for x in graphs]
+    graph["ctrs"] = [x["ctrs"] for x in graphs]
 
     for key in ["feats", "turn", "control", "intersect"]:
-        graph[key] = torch.cat([torch.from_numpy(x[key]) for x in graphs], 0)
+        graph[key] = torch.cat([x[key] for x in graphs], 0)
 
     for k1 in ["pre", "suc"]:
         graph[k1] = []
         for i in range(len(graphs[0]["pre"])):
             graph[k1].append(dict())
             for k2 in ["u", "v"]:
-                graph[k1][i][k2] = torch.cat([torch.from_numpy(graphs[j][k1][i][k2] + counts[j]) for j in range(batch_size)], 0)
+                graph[k1][i][k2] = torch.cat([graphs[j][k1][i][k2] + counts[j] for j in range(batch_size)], 0)
 
     for k1 in ["left", "right"]:
         graph[k1] = dict()
         for k2 in ["u", "v"]:
             temp = [graphs[i][k1][k2] + counts[i] for i in range(batch_size)]
-            temp = [torch.from_numpy(x) if x.ndim > 0 else graph["pre"][0]["u"].new().resize_(0) for x in temp]
+            temp = [x if x.dim() > 0 else graph["pre"][0]["u"].new().resize_(0) for x in temp]
             graph[k1][k2] = torch.cat(temp)
 
     return graph

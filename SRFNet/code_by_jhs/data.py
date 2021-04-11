@@ -65,7 +65,7 @@ class ArgoDataset(Dataset):
                 data = new_data
             else:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph','file_name','cl_cands']:
+                for key in ['idx','city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph', 'file_name', 'cl_cands', 'cl_cands_mod', 'gt_cl_cands']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = new_data
@@ -102,11 +102,16 @@ class ArgoDataset(Dataset):
             data['raster'] = raster
             return data
 
-        data['graph'] = self.get_lane_graph(data)
+        graph_tmp = self.get_lane_graph(data)
         data['cl_cands'] = self.get_cl_cands(data)
         cl_cands_mod, gt_cl_cands = self.cl_cands_gather(data['cl_cands'], data['feats'], data)
         data['cl_cands_mod'] = cl_cands_mod
         data['gt_cl_cands'] = gt_cl_cands
+        actors, actor_idcs = actor_gather(data["feats"])
+
+        data['actors'] = actors
+        data['actor_idcs'] = actor_idcs
+        data['graph'] = graph_tmp
         return data
 
     def __len__(self):
@@ -114,6 +119,75 @@ class ArgoDataset(Dataset):
             return len(self.split)
         else:
             return len(self.avl)
+
+    def disp_to_global(self, actors_in_batch, data):
+        mask = np.zeros_like(actors_in_batch)[:, :, :2]
+        cur_pos = data['orig'] + data['ctrs']
+        mask[:, -1, :] = cur_pos
+        for i in range(18, -1, -1):
+            mask[:, i, :] = mask[:, i + 1, :] - data['feats'][:, i + 1, :2]
+        return mask
+
+    def cl_cands_gather(self, cl_cands, actors_in_batch, data):
+        cl_mask = np.zeros(shape=(50, 4))
+        cl_tot = []
+
+        veh_in_batch = len(cl_cands)
+        veh_feats = self.disp_to_global(actors_in_batch, data)
+        feats = data['feats']
+        future_traj = data['gt_preds']
+        cl_in_batch = []
+        gt_in_batch = []
+        for j in range(veh_in_batch):
+            num_path_cands_of_veh = len(cl_cands[j])
+            cl_veh = []
+            cl_global = []
+            traj = veh_feats[j]
+            valid_num = np.sum(feats[j][:, 2], dtype=int)
+            fut_traj = future_traj[j, :, :]
+            traj_valid = traj[:valid_num, :]
+            if num_path_cands_of_veh > 0:
+                for k in range(num_path_cands_of_veh):
+                    cl_mask_tmp = cl_mask.copy()
+                    cl_rots = np.matmul(data['rot'], (cl_cands[j][k] - data['orig'].reshape(-1, 2)).T).T + data['orig'].reshape(-1, 2)
+                    cl_mods = cl_rots[1:] - cl_rots[:-1]
+                    cl_mask_tmp[1:cl_rots.shape[0], 0] = cl_mods[:min(cl_rots.shape[0] - 1, 49), 0]
+                    cl_mask_tmp[1:cl_rots.shape[0], 1] = cl_mods[:min(cl_rots.shape[0] - 1, 49), 1]
+                    idxs = [-1, -1]
+                    for l in range(min(cl_rots.shape[0], 50)):
+                        idxs[0] = idxs[1]
+                        idxs[1] = np.argmin(np.linalg.norm(traj_valid - cl_rots[l, :], axis=1))
+                        if idxs[0] == idxs[1] and idxs[0] == valid_num - 1:
+                            cl_mask_tmp[l, 3] = 0
+                            cl_mask_tmp[l, 2] = 0
+                        else:
+                            cl_mask_tmp[l, 3] = 1
+                            cl_mask_tmp[l, 2] = np.min(np.linalg.norm(traj_valid - cl_rots[l, :], axis=1))
+                    cl_mask_tmp = np.expand_dims(cl_mask_tmp, axis=0)
+                    if k == 0:
+                        cl_global.append(cl_cands[j][k])
+                        cl_veh.append(cl_mask_tmp)
+                    else:
+                        val_check = [cl_mask_tmp == cl_veh[i] for i in range(len(cl_veh))]
+                        tot_check = [val_check[i].all() for i in range(len(val_check))]
+                        if np.asarray(tot_check).any():
+                            pass
+                        else:
+                            cl_global.append(cl_cands[j][k])
+                            cl_veh.append(cl_mask_tmp)
+                gt_mask = np.zeros(len(cl_global))
+                dist_to_cl_fut = []
+                for k in range(len(cl_global)):
+                    cl_cand = cl_global[k]
+                    dist_to_cl_fut.append(np.mean([np.min(np.linalg.norm(cl_cand - fut_traj[i], axis=1)) for i in range(30)]))
+                gt_mask[np.argmin(dist_to_cl_fut)] = 1
+            else:
+                gt_mask = np.zeros(1)
+                cl_veh = [np.expand_dims(cl_mask.copy(), axis=0)]
+            cl_in_batch.append(np.concatenate(cl_veh, axis=0))
+            gt_in_batch.append(gt_mask)
+
+        return cl_in_batch, gt_in_batch
 
     def read_argo_data(self, idx):
         city = copy.deepcopy(self.avl[idx].city)
@@ -446,7 +520,7 @@ class ArgoDataset(Dataset):
             cl_list_mod = []
             moving_dist = np.linalg.norm(np.sum(hist_feats[j], axis=0)[:2])
             if moving_dist > 1.5 or j == 1:
-                cl_list = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'], viz=False)
+                cl_list, _ = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'], viz=False)
                 for k in range(len(cl_list)):
                     init_idx = np.argmin(np.linalg.norm(cl_list[k] - hist_traj_tmp[j][:1, :], axis=1))
                     cl_sparse = self.sparse_wp(cl_list[k][init_idx:, :])
@@ -758,7 +832,6 @@ def actor_gather(actors):
     actor_idcs.append(idcs)
 
     return actors, actor_idcs
-
 
 
 def map_graph_gather(graphs):

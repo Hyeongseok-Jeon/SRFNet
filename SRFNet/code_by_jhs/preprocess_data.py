@@ -18,7 +18,8 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
+from SRFNet.code_by_jhs.data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
+from SRFNet.model_lanegcn_cpu import get_model
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -50,9 +51,9 @@ def main():
         root_path, "SRFNet","dataset", "preprocess", "val_crs_dist6_angle90.p"
     )
     config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test.p')
-    config["preprocess"] = False  # we use raw data to generate preprocess data
-    config["val_workers"] = 64
-    config["workers"] = 64
+    config["preprocess"] = True  # we use raw data to generate preprocess data
+    config["val_workers"] = 2
+    config["workers"] = 2
     config['cross_dist'] = 6
     config['cross_angle'] = 0.5 * np.pi
     config["train_split"] = os.path.join(
@@ -60,20 +61,50 @@ def main():
     )
     config["val_split"] = os.path.join(root_path, "LaneGCN","dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 64
-    config["val_batch_size"] = 64
+    config["batch_size"] = 2
+    config["val_batch_size"] = 2
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
 
+    config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
+    config["num_scales"] = 6
+    config["n_actor"] = 128
+    config["n_map"] = 128
+    config["actor2map_dist"] = 7.0
+    config["map2actor_dist"] = 6.0
+    config["actor2actor_dist"] = 100.0
+    config["pred_size"] = 30
+    config["pred_step"] = 1
+    config["num_preds"] = config["pred_size"] // config["pred_step"]
+    config["num_mods"] = 6
+    config["cls_coef"] = 1.0
+    config["reg_coef"] = 1.0
+    config["mgn"] = 0.2
+    config["cls_th"] = 2.0
+    config["cls_ignore"] = 0.2
+    config["GAT_dropout"] = 0.5
+    config["GAT_Leakyrelu_alpha"] = 0.2
+    config["GAT_num_head"] = config["n_actor"]
+    config["SRF_conv_num"] = 4
+    config["inter_dist_thres"] = 10
+    config['gan_noise_dim'] = 128
+
+    pre_model = get_model(config)
+    pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
+    pretrained_dict = pre_trained_weight['state_dict']
+    new_model_dict = pre_model.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+    new_model_dict.update(pretrained_dict)
+    pre_model.load_state_dict(new_model_dict)
     os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)
 
-    gen('val', config)
-    gen('test', config)
-    gen('train', config)
+    gen('val', pre_model, config)
+    gen('test', pre_model, config)
+    gen('train', pre_model, config)
 
 
-def gen(mod, config):
+def gen(mod, pre_model, config):
     if mod == 'train':
         train = True
         split = config["train_split"]
@@ -106,8 +137,18 @@ def gen(mod, config):
     t = time.time()
     for i, data in enumerate(tqdm(data_loader)):
         data = dict(data)
+        init_pred_global = pre_model(data)
         for j in range(len(data["idx"])):
             store = dict()
+            init_pred_global_con = init_pred_global[0].copy()
+            init_pred_global_con['reg'][j] = init_pred_global_con['reg'][j][1:2, :, :, :]
+
+            ego_fut_traj = to_numpy(data['gt_preds'][j][0:1, :, :])
+
+            cl_cands = data['cl_cands']
+            cl_cands_target = to_numpy(cl_cands[j][1])
+            hid = reform(ego_fut_traj, cl_cands_target, init_pred_global_con['reg'][j])
+
             for key in [
                 "idx",
                 "city",
@@ -128,6 +169,9 @@ def gen(mod, config):
                 store[key] = to_numpy(data[key][j])
                 if key in ["graph"]:
                     store[key] = to_int16(store[key])
+            store['data'] = hid
+            store['init_pred_global'] = init_pred_global
+            store['init_pred_global_con'] = init_pred_global_con
             stores[store["idx"]] = store
 
         if (i + 1) % 100 == 0:
@@ -336,12 +380,6 @@ def to_long(data):
     return data
 
 
-def worker_init_fn(pid):
-    np_seed = hvd.rank() * 1024 + int(pid)
-    np.random.seed(np_seed)
-    random_seed = np.random.randint(2 ** 32 - 1)
-    random.seed(random_seed)
-
 def gpu(data):
     """
     Transfer tensor in `data` to gpu recursively
@@ -354,6 +392,76 @@ def gpu(data):
     elif isinstance(data, torch.Tensor):
         data = data.contiguous().cuda(non_blocking=True)
     return data
+
+
+def reform(ego_fut_traj, cl_cands_target, init_pred_global):
+
+    i = 0
+    if len(cl_cands_target) == 1:
+        cl_cand = torch.from_numpy(cl_cands_target[i][0])
+    else:
+        cl_cand = get_nearest_cl([torch.from_numpy(cl_cands_target[j]) for j in range(len(cl_cands_target))], init_pred_global)
+    cl_cand = cl_cand[:100]
+    ego_fut = torch.from_numpy(ego_fut_traj[i])
+    mask = torch.zeros_like(ego_fut)
+    mask = torch.repeat_interleave(torch.repeat_interleave(mask, 4, dim=0)[:100, 0].unsqueeze(dim=0), 30, dim=0)
+    ego_pos = ego_fut
+    ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
+    ego_dist, ego_idx = torch.min(ego_dists, dim=0)
+
+    sur_pos = init_pred_global[0, :, :, :]
+    sur_dists = [torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - sur_pos[i, :], dim=2) for i in range(6)]
+    sur_dist, sur_idx = [], []
+    for j in range(6):
+        sur_dist_tmp, sur_idx_tmp = torch.min(sur_dists[j], dim=0)
+        sur_dist.append(sur_dist_tmp)
+        sur_idx.append(sur_idx_tmp)
+    sur_min_idx = min([min(sur_idx[ss]) for ss in range(6)])
+    min_idx = min(sur_min_idx, min(ego_idx))
+
+    sur_disp = [cl_cand[sur_idx[i]] - sur_pos[i] for i in range(6)]
+    sur_feat_1 = [mask.clone() for _ in range(6)]
+    for jj in range(6):
+        sur_feat_1[jj][np.arange(30), sur_idx[jj] - min_idx] = 1
+    sur_feat = torch.cat([torch.cat([sur_feat_1[i], sur_disp[i]], dim=1).unsqueeze(dim=0) for i in range(6)], dim=0)
+
+    ego_disp = cl_cand[ego_idx] - ego_pos
+    ego_feat_1 = mask.clone()
+    ego_feat_1[np.arange(30), ego_idx - min_idx] = 1
+    ego_feat = torch.repeat_interleave(torch.cat([ego_feat_1, ego_disp], dim=1).unsqueeze(dim=0), 6, dim=0)
+    feat = torch.cat([ego_feat, sur_feat], dim=-1)
+
+    return feat
+
+def get_nearest_cl(cl_cands_target_tmp, init_pred_global_tmp):
+    dist = []
+    for i in range(len(cl_cands_target_tmp)):
+        dist_tmp = []
+        cl_tmp = cl_cands_target_tmp[i]
+        cl_tmp_dense = get_cl_dense(cl_tmp)
+        for j in range(30):
+            tmp = cl_tmp_dense - init_pred_global_tmp[0, :, j:j + 1, :]
+            tmps = torch.sqrt(tmp[:, :, 0] ** 2 + tmp[:, :, 1] ** 2)
+            dist_tmp_tmp = torch.mean(torch.min(tmps, dim=1)[0]).unsqueeze(dim=0)
+            dist_tmp.append(dist_tmp_tmp)
+        dist_tmp = torch.cat(dist_tmp)
+        dist.append(torch.mean(dist_tmp).unsqueeze(dim=0))
+    dist = torch.cat(dist)
+    return cl_cands_target_tmp[torch.argmin(dist)]
+
+def get_cl_dense(cl_tmp):
+    cl_mod = torch.zeros_like(torch.repeat_interleave(cl_tmp, 4, dim=0))
+    for i in range(cl_tmp.shape[0]):
+        if i == cl_tmp.shape[0] - 1:
+            cl_mod[4 * i, :] = cl_tmp[i, :]
+        else:
+            cl_mod[4 * i, :] = cl_tmp[i, :]
+            cl_mod[4 * i + 1, :] = cl_tmp[i, :] + 1 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
+            cl_mod[4 * i + 2, :] = cl_tmp[i, :] + 2 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
+            cl_mod[4 * i + 3, :] = cl_tmp[i, :] + 3 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
+    cl_mod = cl_mod[:-3, :]
+    return torch.repeat_interleave(cl_mod.unsqueeze(dim=0), 6, dim=0)
+
 
 if __name__ == "__main__":
     main()
