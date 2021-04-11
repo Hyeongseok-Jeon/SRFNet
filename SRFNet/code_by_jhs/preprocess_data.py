@@ -72,8 +72,8 @@ def main():
     )
     config["val_split"] = os.path.join(root_path, "LaneGCN", "dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 4
-    config["val_batch_size"] = 4
+    config["batch_size"] = 2
+    config["val_batch_size"] = 2
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
