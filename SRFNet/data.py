@@ -20,7 +20,7 @@ class ArgoDataset(Dataset):
         self.train = train
         root_path = os.getcwd()
         base_model = get_model(config)
-        pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
+        pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
         pretrained_dict = pre_trained_weight['state_dict']
         new_model_dict = base_model.state_dict()
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
