@@ -72,8 +72,8 @@ def main():
     )
     config["val_split"] = os.path.join(root_path, "LaneGCN", "dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 2
-    config["val_batch_size"] = 2
+    config["batch_size"] = 8
+    config["val_batch_size"] = 8
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
@@ -101,7 +101,7 @@ def main():
     config["inter_dist_thres"] = 10
     config['gan_noise_dim'] = 128
 
-    config, ArgoDataset, collate_fn, pre_model, loss, post_process, opt, params = get_model(args)
+    _, _, _, pre_model, _, _, _, _ = get_model(args)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = pre_model.state_dict()
