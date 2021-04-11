@@ -122,7 +122,6 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
     def forward(self, data):
         cl_cands = to_float(gpu(data['cl_cands']))
-        cl_cands_target = [to_float(cl_cands[i][1]) for i in range(len(cl_cands))]
         target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
         ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
         target_hist_traj = feat_to_global(gpu(data['feats']), gpu(data['rot']), gpu(data['orig']), gpu(data['ctrs']))
@@ -217,74 +216,6 @@ class EgoReactEncodeNet(nn.Module):
         log_vars = [log_vars[30 * i:30 * (i + 1), :, :] for i in range(len(ego_fut_traj))]
 
         return [mus, log_vars]
-
-    def reform(self, ego_fut_traj, cl_cands_target, init_pred_global):
-        reformed = []
-        for i in range(len(cl_cands_target)):
-            if len(cl_cands_target[i]) == 1:
-                cl_cand = cl_cands_target[i][0]
-            else:
-                cl_cand = self.get_nearest_cl(cl_cands_target[i], init_pred_global['reg'][i])
-            cl_cand = cl_cand[:100]
-            ego_fut = ego_fut_traj[i][0]
-            mask = torch.zeros_like(ego_fut)
-            mask = torch.repeat_interleave(torch.repeat_interleave(mask, 4, dim=0)[:100, 0].unsqueeze(dim=0), 30, dim=0)
-            ego_pos = ego_fut
-            ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
-            ego_dist, ego_idx = torch.min(ego_dists, dim=0)
-
-            sur_pos = init_pred_global['reg'][i][0, :, :, :]
-            sur_dists = [torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - sur_pos[i, :], dim=2) for i in range(6)]
-            sur_dist, sur_idx = [], []
-            for j in range(6):
-                sur_dist_tmp, sur_idx_tmp = torch.min(sur_dists[j], dim=0)
-                sur_dist.append(sur_dist_tmp)
-                sur_idx.append(sur_idx_tmp)
-            sur_min_idx = min([min(sur_idx[ss]) for ss in range(6)])
-            min_idx = min(sur_min_idx, min(ego_idx))
-
-            sur_disp = [cl_cand[sur_idx[i]] - sur_pos[i] for i in range(6)]
-            sur_feat_1 = [mask.clone() for _ in range(6)]
-            for jj in range(6):
-                sur_feat_1[jj][np.arange(30), sur_idx[jj]-min_idx] = 1
-            sur_feat = torch.cat([torch.cat([sur_feat_1[i], sur_disp[i]], dim=1).unsqueeze(dim=0) for i in range(6)], dim=0)
-
-            ego_disp = cl_cand[ego_idx] - ego_pos
-            ego_feat_1 = mask.clone()
-            ego_feat_1[np.arange(30),ego_idx-min_idx] = 1
-            ego_feat = torch.repeat_interleave(torch.cat([ego_feat_1, ego_disp], dim=1).unsqueeze(dim=0), 6, dim=0)
-            feat = torch.cat([ego_feat, sur_feat], dim=-1)
-            reformed.append(feat)
-        return reformed
-
-    def get_nearest_cl(self, cl_cands_target_tmp, init_pred_global_tmp):
-        dist = []
-        for i in range(len(cl_cands_target_tmp)):
-            dist_tmp = []
-            cl_tmp = cl_cands_target_tmp[i]
-            cl_tmp_dense = self.get_cl_dense(cl_tmp)
-            for j in range(30):
-                tmp = cl_tmp_dense - init_pred_global_tmp[0, :, j:j + 1, :]
-                tmps = torch.sqrt(tmp[:, :, 0] ** 2 + tmp[:, :, 1] ** 2)
-                dist_tmp_tmp = torch.mean(torch.min(tmps, dim=1)[0]).unsqueeze(dim=0)
-                dist_tmp.append(dist_tmp_tmp)
-            dist_tmp = torch.cat(dist_tmp)
-            dist.append(torch.mean(dist_tmp).unsqueeze(dim=0))
-        dist = torch.cat(dist)
-        return cl_cands_target_tmp[torch.argmin(dist)]
-
-    def get_cl_dense(self, cl_tmp):
-        cl_mod = torch.zeros_like(torch.repeat_interleave(cl_tmp, 4, dim=0))
-        for i in range(cl_tmp.shape[0]):
-            if i == cl_tmp.shape[0] - 1:
-                cl_mod[4 * i, :] = cl_tmp[i, :]
-            else:
-                cl_mod[4 * i, :] = cl_tmp[i, :]
-                cl_mod[4 * i + 1, :] = cl_tmp[i, :] + 1 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
-                cl_mod[4 * i + 2, :] = cl_tmp[i, :] + 2 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
-                cl_mod[4 * i + 3, :] = cl_tmp[i, :] + 3 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
-        cl_mod = cl_mod[:-3, :]
-        return torch.repeat_interleave(cl_mod.unsqueeze(dim=0), 6, dim=0)
 
 
 class GenerateNet(nn.Module):
