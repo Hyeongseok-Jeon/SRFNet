@@ -132,6 +132,7 @@ def graph_gather(graphs):
             temp = [graphs[i][k1][k2] + counts[i] for i in range(batch_size)]
             temp = [torch.from_numpy(x) if x.ndim > 0 else graph["pre"][0]["u"].new().resize_(0) for x in temp]
             graph[k1][k2] = torch.cat(temp)
+
     return graph
 
 
@@ -370,7 +371,7 @@ class MapNet(nn.Module):
             temp = graph["feats"]
             return (
                 temp.new().resize_(0),
-                [temp.new().long().resize_(0) for x in graph["idcs"]],
+                [temp.new().long().resize_(0) for x in graph["node_idcs"]],
                 temp.new().resize_(0),
             )
 
