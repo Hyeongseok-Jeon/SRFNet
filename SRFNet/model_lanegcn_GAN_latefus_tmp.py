@@ -121,6 +121,7 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         self.discriminator = DiscriminateNet(config)
 
     def forward(self, data, mod):
+        print(data['idx'])
         batch_num = len(data['gt_preds'])
         ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
 

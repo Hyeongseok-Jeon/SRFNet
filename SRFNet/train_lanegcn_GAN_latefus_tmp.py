@@ -243,7 +243,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         out_added = output[0]
         post_out = post_process(out_added, data)
         post_process.append(metrics, loss_out, post_out)
-
+        print(hvd.rank())
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
                 num_iters % save_iters == 0 or epoch >= config["num_epochs"]

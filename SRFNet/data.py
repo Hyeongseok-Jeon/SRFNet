@@ -177,7 +177,7 @@ class ArgoDataset(Dataset):
             data['data'] = hid
             data['init_pred_global'] = init_pred_global
             data['init_pred_global_con'] = init_pred_global_con
-
+            data['idx'] = idx
             return data
 
         data = self.read_argo_data(idx)
