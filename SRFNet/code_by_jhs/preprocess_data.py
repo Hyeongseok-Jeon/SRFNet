@@ -227,21 +227,21 @@ def to_int16(data):
 def modify(config, data_loader, save):
     t = time.time()
     store = data_loader.dataset.split
-    for i, data in enumerate(data_loader):
-        data = [dict(x) for x in data]
-
-        out = []
-        for j in range(len(data)):
-            out.append(preprocess(to_long(gpu(data[j])), config['cross_dist']))
-
-        for j, graph in enumerate(out):
-            idx = graph['idx']
-            store[idx]['graph']['left'] = graph['left']
-            store[idx]['graph']['right'] = graph['right']
-
-        if (i + 1) % 100 == 0:
-            print((i + 1) * config['batch_size'], time.time() - t)
-            t = time.time()
+    # for i, data in enumerate(data_loader):
+    #     data = [dict(x) for x in data]
+    #
+    #     out = []
+    #     for j in range(len(data)):
+    #         out.append(preprocess(to_long(gpu(data[j])), config['cross_dist']))
+    #
+    #     for j, graph in enumerate(out):
+    #         idx = graph['idx']
+    #         store[idx]['graph']['left'] = graph['left']
+    #         store[idx]['graph']['right'] = graph['right']
+    #
+    #     if (i + 1) % 100 == 0:
+    #         print((i + 1) * config['batch_size'], time.time() - t)
+    #         t = time.time()
 
     f = open(os.path.join(root_path, 'preprocess_GAN', os.path.basename(save)), 'wb')
     pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)

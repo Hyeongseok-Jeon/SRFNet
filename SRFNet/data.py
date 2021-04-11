@@ -11,22 +11,13 @@ import copy
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from skimage.transform import rotate
-from SRFNet.model_lanegcn_cpu import get_model
 
 
 class ArgoDataset(Dataset):
     def __init__(self, split, config, train=True):
         self.config = config
         self.train = train
-        root_path = os.getcwd()
-        base_model = get_model(config)
-        pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
-        pretrained_dict = pre_trained_weight['state_dict']
-        new_model_dict = base_model.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
-        new_model_dict.update(pretrained_dict)
-        base_model.load_state_dict(new_model_dict)
-        self.base_model = base_model.cpu()
+
         if 'preprocess' in config and config['preprocess']:
             if train:
                 self.split = np.load(self.config['preprocess_train'], allow_pickle=True)
@@ -144,7 +135,11 @@ class ArgoDataset(Dataset):
                 data = get_ctrs_idx(new_data)
             else:
                 new_data = dict()
-                for key in ['city', 'orig', 'gt_preds', 'has_preds', 'theta', 'rot', 'feats', 'ego_feats', 'ctrs', 'graph', 'file_name', 'cl_cands', 'cl_cands_mod', 'gt_cl_cands']:
+                for key in ['city', 'orig', 'gt_preds', 'has_preds',
+                            'theta', 'rot', 'feats', 'ego_feats',
+                            'ctrs', 'graph', 'file_name', 'cl_cands',
+                            'cl_cands_mod', 'gt_cl_cands', 'data',
+                            'init_pred_global','init_pred_global_con','idx']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = get_ctrs_idx(new_data)
@@ -162,22 +157,6 @@ class ArgoDataset(Dataset):
             for key in data.keys():
                 data[key] = [data[key]]
 
-            with torch.no_grad():
-                init_pred_global = self.base_model(data)
-            init_pred_global_con = init_pred_global[0]
-            init_pred_global_con['reg'] = [init_pred_global_con['reg'][i][1:2, :, :, :] for i in range(len(init_pred_global_con['reg']))]
-
-            ego_fut_traj = [torch.from_numpy(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
-
-            cl_cands = (data['cl_cands'])
-            cl_cands_target = [cl_cands[i][1] for i in range(len(cl_cands))]
-            hid = self.reform(ego_fut_traj, cl_cands_target, init_pred_global_con)
-            for key in data.keys():
-                data[key] = data[key][0]
-            data['data'] = hid
-            data['init_pred_global'] = init_pred_global
-            data['init_pred_global_con'] = init_pred_global_con
-            data['idx'] = idx
             return data
 
         data = self.read_argo_data(idx)
