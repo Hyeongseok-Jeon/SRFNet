@@ -8,9 +8,17 @@ Preprocess the data(csv), build graph from the HDMAP and saved as pkl
 
 import argparse
 import os
+import sys
+sys.path.extend(['/home/jhs/Desktop/SRFNet'])
+sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
+sys.path.extend(['/home/user/Desktop/SRFNet'])
+sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
+sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
+sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
+
 import pickle5 as pickle
 import random
-import sys
+
 import time
 from importlib import import_module
 
@@ -19,7 +27,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
-from model_lanegcn_cpu import get_model
+from SRFNet.model_lanegcn_cpu import get_model
 import warnings
 warnings.filterwarnings("ignore")
 
