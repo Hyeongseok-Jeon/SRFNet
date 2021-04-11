@@ -363,17 +363,17 @@ class MapNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, graph):
-        if (
-                len(graph["feats"]) == 0
-                or len(graph["pre"][-1]["u"]) == 0
-                or len(graph["suc"][-1]["u"]) == 0
-        ):
-            temp = graph["feats"]
-            return (
-                temp.new().resize_(0),
-                [temp.new().long().resize_(0) for x in graph["node_idcs"]],
-                temp.new().resize_(0),
-            )
+        # if (
+        #         len(graph["feats"]) == 0
+        #         or len(graph["pre"][-1]["u"]) == 0
+        #         or len(graph["suc"][-1]["u"]) == 0
+        # ):
+        #     temp = graph["feats"]
+        #     return (
+        #         temp.new().resize_(0),
+        #         [temp.new().long().resize_(0) for x in graph["node_idcs"]],
+        #         temp.new().resize_(0),
+        #     )
 
         ctrs = torch.cat(graph["ctrs"], 0)
         feat = self.input(ctrs)
