@@ -145,6 +145,7 @@ class lanegcn(nn.Module):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
                 1, 1, 1, -1
             )
+        del actors, actor_idcs, actor_ctrs, graph, nodes, node_idcs, node_ctrs,
         return [out]
 
 

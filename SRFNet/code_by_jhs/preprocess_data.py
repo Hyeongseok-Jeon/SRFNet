@@ -147,7 +147,8 @@ def gen(mod, pre_model, config):
     t = time.time()
     for i, data in enumerate(tqdm(data_loader)):
         data = dict(data)
-        init_pred_global = pre_model(data)
+        with torch.no_grad():
+            init_pred_global = pre_model(data)
         for j in range(len(data["idx"])):
             store = dict()
             init_pred_global_con = init_pred_global[0].copy()
