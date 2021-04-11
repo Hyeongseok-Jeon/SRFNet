@@ -370,7 +370,7 @@ class MapNet(nn.Module):
             temp = graph["feats"]
             return (
                 temp.new().resize_(0),
-                [temp.new().long().resize_(0) for x in graph["node_idcs"]],
+                [temp.new().long().resize_(0) for x in graph["idcs"]],
                 temp.new().resize_(0),
             )
 
