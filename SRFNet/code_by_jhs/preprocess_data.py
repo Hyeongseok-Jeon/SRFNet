@@ -27,7 +27,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
-from SRFNet.model_lanegcn_cpu import get_model
+from SRFNet.model_lanegcn import get_model
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -41,6 +41,9 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument(
     "-m", "--model", default="lanegcn", type=str, metavar="MODEL", help="model name"
+)
+parser.add_argument(
+    "-case", default="lanegcn", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
@@ -98,7 +101,7 @@ def main():
     config["inter_dist_thres"] = 10
     config['gan_noise_dim'] = 128
 
-    pre_model = get_model(config)
+    config, ArgoDataset, collate_fn, pre_model, loss, post_process, opt, params = get_model(args)
     pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
     pretrained_dict = pre_trained_weight['state_dict']
     new_model_dict = pre_model.state_dict()
@@ -148,13 +151,13 @@ def gen(mod, pre_model, config):
         for j in range(len(data["idx"])):
             store = dict()
             init_pred_global_con = init_pred_global[0].copy()
-            init_pred_global_con['reg'][j] = init_pred_global_con['reg'][j][1:2, :, :, :]
+            init_pred_global_con['reg'][j] = init_pred_global_con['reg'][j][1:2, :, :, :].cpu()
 
             ego_fut_traj = to_numpy(data['gt_preds'][j][0:1, :, :])
 
             cl_cands = data['cl_cands']
             cl_cands_target = to_numpy(cl_cands[j][1])
-            hid = reform(ego_fut_traj, cl_cands_target, init_pred_global_con['reg'][j])
+            hid = reform(ego_fut_traj, cl_cands_target, init_pred_global_con['reg'][j].cpu())
             for key in [
                 "idx",
                 "city",
@@ -175,6 +178,7 @@ def gen(mod, pre_model, config):
             store['data'] = hid
             store['init_pred_global'] = init_pred_global
             store['init_pred_global_con'] = init_pred_global_con
+
             stores[store["idx"]] = store
 
         if (i + 1) % 100 == 0:
