@@ -19,7 +19,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
-from SRFNet.model_lanegcn_cpu import get_model
+from model_lanegcn_cpu import get_model
 import warnings
 warnings.filterwarnings("ignore")
 
