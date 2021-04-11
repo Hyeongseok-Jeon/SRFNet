@@ -45,12 +45,12 @@ def main():
 
     config["preprocess"] = True  # whether use preprocess or not
     config["preprocess_train"] = os.path.join(
-        root_path,"SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
+        root_path,"SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90_mod.p"
     )
     config["preprocess_val"] = os.path.join(
-        root_path, "SRFNet","dataset", "preprocess", "val_crs_dist6_angle90.p"
+        root_path, "SRFNet","dataset", "preprocess", "val_crs_dist6_angle90_mod.p"
     )
-    config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test.p')
+    config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test_mod.p')
     config["preprocess"] = True  # we use raw data to generate preprocess data
     config["val_workers"] = 64
     config["workers"] = 64
@@ -148,7 +148,6 @@ def gen(mod, pre_model, config):
             cl_cands = data['cl_cands']
             cl_cands_target = to_numpy(cl_cands[j][1])
             hid = reform(ego_fut_traj, cl_cands_target, init_pred_global_con['reg'][j])
-
             for key in [
                 "idx",
                 "city",
@@ -161,14 +160,11 @@ def gen(mod, pre_model, config):
                 "has_preds",
                 "file_name",
                 "ego_feats",
-                "graph",
                 'cl_cands',
-                'cl_cands_mod',
                 'gt_cl_cands'
             ]:
                 store[key] = to_numpy(data[key][j])
-                if key in ["graph"]:
-                    store[key] = to_int16(store[key])
+
             store['data'] = hid
             store['init_pred_global'] = init_pred_global
             store['init_pred_global_con'] = init_pred_global_con
