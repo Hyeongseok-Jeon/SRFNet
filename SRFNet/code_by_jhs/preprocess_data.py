@@ -52,8 +52,8 @@ def main():
     )
     config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test.p')
     config["preprocess"] = True  # we use raw data to generate preprocess data
-    config["val_workers"] = 2
-    config["workers"] = 2
+    config["val_workers"] = 64
+    config["workers"] = 64
     config['cross_dist'] = 6
     config['cross_angle'] = 0.5 * np.pi
     config["train_split"] = os.path.join(
@@ -61,8 +61,8 @@ def main():
     )
     config["val_split"] = os.path.join(root_path, "LaneGCN","dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 2
-    config["val_batch_size"] = 2
+    config["batch_size"] = 64
+    config["val_batch_size"] = 64
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
