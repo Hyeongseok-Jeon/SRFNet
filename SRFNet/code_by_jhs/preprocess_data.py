@@ -53,12 +53,12 @@ def main():
 
     config["preprocess"] = True  # whether use preprocess or not
     config["preprocess_train"] = os.path.join(
-        root_path,"SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90_mod.p"
+        root_path,"SRFNet", "dataset", "preprocess", "train_crs_dist6_angle90.p"
     )
     config["preprocess_val"] = os.path.join(
-        root_path, "SRFNet","dataset", "preprocess", "val_crs_dist6_angle90_mod.p"
+        root_path, "SRFNet","dataset", "preprocess", "val_crs_dist6_angle90.p"
     )
-    config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test_mod.p')
+    config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test.p')
     config["preprocess"] = True  # we use raw data to generate preprocess data
     config["val_workers"] = 64
     config["workers"] = 64
@@ -105,12 +105,11 @@ def main():
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
     new_model_dict.update(pretrained_dict)
     pre_model.load_state_dict(new_model_dict)
-    os.makedirs(os.path.dirname(config['preprocess_train']),exist_ok=True)
+    os.makedirs(os.path.join(root_path, 'SRFNet', 'dataset', 'preprocess_GAN'),exist_ok=True)
 
     gen('val', pre_model, config)
     gen('test', pre_model, config)
     gen('train', pre_model, config)
-
 
 def gen(mod, pre_model, config):
     if mod == 'train':
@@ -239,7 +238,7 @@ def modify(config, data_loader, save):
             print((i + 1) * config['batch_size'], time.time() - t)
             t = time.time()
 
-    f = open(os.path.join(root_path, 'preprocess', save), 'wb')
+    f = open(os.path.join(root_path, 'preprocess_GAN', os.path.basename(save)), 'wb')
     pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)
     f.close()
 
