@@ -12,7 +12,6 @@ os.umask(0)
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import argparse
 import numpy as np
 import random
@@ -123,14 +122,14 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=True)
+    dataset = Dataset(config["train_split"], config, train=False)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
     train_loader = DataLoader(
         dataset,
         batch_size=config["batch_size"],
-        num_workers=config["workers"],
+        num_workers=24,
         sampler=train_sampler,
         collate_fn=collate_fn,
         pin_memory=True,

@@ -11,13 +11,22 @@ import copy
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from skimage.transform import rotate
+from SRFNet.model_lanegcn_cpu import get_model
 
 
 class ArgoDataset(Dataset):
     def __init__(self, split, config, train=True):
         self.config = config
         self.train = train
-
+        root_path = os.getcwd()
+        base_model = get_model(config)
+        pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
+        pretrained_dict = pre_trained_weight['state_dict']
+        new_model_dict = base_model.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+        new_model_dict.update(pretrained_dict)
+        base_model.load_state_dict(new_model_dict)
+        self.base_model = base_model.cpu()
         if 'preprocess' in config and config['preprocess']:
             if train:
                 self.split = np.load(self.config['preprocess_train'], allow_pickle=True)
@@ -30,6 +39,74 @@ class ArgoDataset(Dataset):
         if 'raster' in config and config['raster']:
             # TODO: DELETE
             self.map_query = MapQuery(config['map_scale'])
+
+    def reform(self, ego_fut_traj, cl_cands_target, init_pred_global):
+        reformed = []
+        for i in range(len(cl_cands_target)):
+            if len(cl_cands_target[i]) == 1:
+                cl_cand = torch.from_numpy(cl_cands_target[i][0])
+            else:
+                cl_cand = self.get_nearest_cl([torch.from_numpy(cl_cands_target[i][j]) for j in range(len(cl_cands_target[i]))], init_pred_global['reg'][i])
+            cl_cand = cl_cand[:100]
+            ego_fut = ego_fut_traj[i][0]
+            mask = torch.zeros_like(ego_fut)
+            mask = torch.repeat_interleave(torch.repeat_interleave(mask, 4, dim=0)[:100, 0].unsqueeze(dim=0), 30, dim=0)
+            ego_pos = ego_fut
+            ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
+            ego_dist, ego_idx = torch.min(ego_dists, dim=0)
+
+            sur_pos = init_pred_global['reg'][i][0, :, :, :]
+            sur_dists = [torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - sur_pos[i, :], dim=2) for i in range(6)]
+            sur_dist, sur_idx = [], []
+            for j in range(6):
+                sur_dist_tmp, sur_idx_tmp = torch.min(sur_dists[j], dim=0)
+                sur_dist.append(sur_dist_tmp)
+                sur_idx.append(sur_idx_tmp)
+            sur_min_idx = min([min(sur_idx[ss]) for ss in range(6)])
+            min_idx = min(sur_min_idx, min(ego_idx))
+
+            sur_disp = [cl_cand[sur_idx[i]] - sur_pos[i] for i in range(6)]
+            sur_feat_1 = [mask.clone() for _ in range(6)]
+            for jj in range(6):
+                sur_feat_1[jj][np.arange(30), sur_idx[jj] - min_idx] = 1
+            sur_feat = torch.cat([torch.cat([sur_feat_1[i], sur_disp[i]], dim=1).unsqueeze(dim=0) for i in range(6)], dim=0)
+
+            ego_disp = cl_cand[ego_idx] - ego_pos
+            ego_feat_1 = mask.clone()
+            ego_feat_1[np.arange(30), ego_idx - min_idx] = 1
+            ego_feat = torch.repeat_interleave(torch.cat([ego_feat_1, ego_disp], dim=1).unsqueeze(dim=0), 6, dim=0)
+            feat = torch.cat([ego_feat, sur_feat], dim=-1)
+            reformed.append(feat)
+        return reformed
+
+    def get_nearest_cl(self, cl_cands_target_tmp, init_pred_global_tmp):
+        dist = []
+        for i in range(len(cl_cands_target_tmp)):
+            dist_tmp = []
+            cl_tmp = cl_cands_target_tmp[i]
+            cl_tmp_dense = self.get_cl_dense(cl_tmp)
+            for j in range(30):
+                tmp = cl_tmp_dense - init_pred_global_tmp[0, :, j:j + 1, :]
+                tmps = torch.sqrt(tmp[:, :, 0] ** 2 + tmp[:, :, 1] ** 2)
+                dist_tmp_tmp = torch.mean(torch.min(tmps, dim=1)[0]).unsqueeze(dim=0)
+                dist_tmp.append(dist_tmp_tmp)
+            dist_tmp = torch.cat(dist_tmp)
+            dist.append(torch.mean(dist_tmp).unsqueeze(dim=0))
+        dist = torch.cat(dist)
+        return cl_cands_target_tmp[torch.argmin(dist)]
+
+    def get_cl_dense(self, cl_tmp):
+        cl_mod = torch.zeros_like(torch.repeat_interleave(cl_tmp, 4, dim=0))
+        for i in range(cl_tmp.shape[0]):
+            if i == cl_tmp.shape[0] - 1:
+                cl_mod[4 * i, :] = cl_tmp[i, :]
+            else:
+                cl_mod[4 * i, :] = cl_tmp[i, :]
+                cl_mod[4 * i + 1, :] = cl_tmp[i, :] + 1 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
+                cl_mod[4 * i + 2, :] = cl_tmp[i, :] + 2 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
+                cl_mod[4 * i + 3, :] = cl_tmp[i, :] + 3 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
+        cl_mod = cl_mod[:-3, :]
+        return torch.repeat_interleave(cl_mod.unsqueeze(dim=0), 6, dim=0)
 
     def __getitem__(self, idx):
         if 'preprocess' in self.config and self.config['preprocess']:
@@ -81,6 +158,26 @@ class ArgoDataset(Dataset):
                 raster = self.map_query.query(region, data['theta'], data['city'])
 
                 data['raster'] = raster
+
+            for key in data.keys():
+                data[key] = [data[key]]
+
+            with torch.no_grad():
+                init_pred_global = self.base_model(data)
+            init_pred_global_con = init_pred_global[0]
+            init_pred_global_con['reg'] = [init_pred_global_con['reg'][i][1:2, :, :, :] for i in range(len(init_pred_global_con['reg']))]
+
+            ego_fut_traj = [torch.from_numpy(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
+
+            cl_cands = (data['cl_cands'])
+            cl_cands_target = [cl_cands[i][1] for i in range(len(cl_cands))]
+            hid = self.reform(ego_fut_traj, cl_cands_target, init_pred_global_con)
+            for key in data.keys():
+                data[key] = data[key][0]
+            data['data'] = hid
+            data['init_pred_global'] = init_pred_global
+            data['init_pred_global_con'] = init_pred_global_con
+
             return data
 
         data = self.read_argo_data(idx)
@@ -645,6 +742,7 @@ def collate_fn(batch):
     # Batching by use a list for non-fixed size
     for key in batch[0].keys():
         return_batch[key] = [x[key] for x in batch]
+
     return return_batch
 
 

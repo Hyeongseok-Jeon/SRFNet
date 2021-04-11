@@ -18,7 +18,6 @@ from SRFNet.utils import gpu, to_long, Optimizer, StepLR, to_float
 
 from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from SRFNet.model_maneuver_pred import get_model as get_manuever_model
-from SRFNet.model_lanegcn import get_model as get_baseline
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -49,8 +48,8 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 2
-config["val_batch_size"] = 2
+config["batch_size"] = 4
+config["val_batch_size"] = 4
 config["workers"] = 0
 config["val_workers"] = config["workers"]
 
@@ -106,14 +105,7 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         self.config = config
         self.args = args
         self.args.case = 'lanegcn'
-        _, _, _, base_model, _, _, _, _ = get_baseline(args)
         _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
-        pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
-        pretrained_dict = pre_trained_weight['state_dict']
-        new_model_dict = base_model.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
-        new_model_dict.update(pretrained_dict)
-        base_model.load_state_dict(new_model_dict)
 
         pre_trained_weight = torch.load(os.path.join(root_path, "results/model_lanegcn/lanegcn") + '/32.000.ckpt')
         pretrained_dict = pre_trained_weight['state_dict']
@@ -123,11 +115,10 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         maneuver_pred_net.load_state_dict(new_model_dict)
 
         self.maneu_pred = maneuver_pred_net
-        self.base_model = base_model
 
-        self.ego_react_encoder = EgoReactEncodeNet(config)
-        self.generator = GenerateNet(config)
-        self.discriminator = DiscriminateNet(config)
+        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
+        self.generator = GenerateNet(config).cuda()
+        self.discriminator = DiscriminateNet(config).cuda()
 
     def forward(self, data):
         cl_cands = to_float(gpu(data['cl_cands']))
@@ -136,11 +127,27 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
         target_hist_traj = feat_to_global(gpu(data['feats']), gpu(data['rot']), gpu(data['orig']), gpu(data['ctrs']))
 
-        init_pred_global = self.base_model(data)
-        init_pred_global_con = init_pred_global[0]
-        init_pred_global_con['reg'] = [init_pred_global_con['reg'][i][1:2, :, :, :] for i in range(len(init_pred_global_con['reg']))]
+        hid = gpu(data['data'])
+        init_pred_global_raw = gpu(data['init_pred_global'])
+        init_pred = dict()
+        init_pred['cls'] = []
+        init_pred['reg'] = []
+        for i in range(len(hid)):
+            init_pred['cls'].append(init_pred_global_raw[i][0]['cls'][0])
+            init_pred['reg'].append(init_pred_global_raw[i][0]['reg'][0])
+        init_pred_global = [init_pred]
 
-        mus_enc, log_vars = self.ego_react_encoder(ego_fut_traj, cl_cands_target, init_pred_global_con)
+        init_pred_global_con_raw = gpu(data['init_pred_global_con'])
+        init_pred_con = dict()
+        init_pred_con['cls'] = []
+        init_pred_con['reg'] = []
+        for i in range(len(hid)):
+            init_pred_con['cls'].append(init_pred_global_con_raw[i]['cls'][0])
+            init_pred_con['reg'].append(init_pred_global_con_raw[i]['reg'][0])
+        init_pred_global_con = init_pred_con
+
+
+        mus_enc, log_vars = self.ego_react_encoder(ego_fut_traj, hid)
         vars = [torch.exp(log_vars[i] * 0.5) for i in range(len(log_vars))]
         mus = torch.cat(mus_enc, dim=1)
         vars = torch.cat(vars, dim=1)
@@ -190,14 +197,14 @@ class EgoReactEncodeNet(nn.Module):
     def __init__(self, config):
         super(EgoReactEncodeNet, self).__init__()
         self.config = config
-        self.enc1 = nn.Linear(204, config['n_actor'])
+        self.enc1 = nn.Linear(204, config['n_actor']).cuda()
         self.enc2 = nn.Linear(config['n_actor'], config['n_actor'])
         self.mu_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
         self.log_varience_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
 
-    def forward(self, ego_fut_traj, cl_cands_target, init_pred_global):
-        data = self.reform(ego_fut_traj, cl_cands_target, init_pred_global)
-        data_cat = torch.cat([data[i].view(-1, 204) for i in range(len(data))], dim=0)
+    def forward(self, ego_fut_traj, hid):
+        data = hid
+        data_cat = torch.cat([to_float(data[i][0]).view(-1, 204) for i in range(len(data))], dim=0)
 
         hid = F.relu(self.enc1(data_cat))
         hid = F.relu(self.enc2(hid))
@@ -218,10 +225,13 @@ class EgoReactEncodeNet(nn.Module):
                 cl_cand = cl_cands_target[i][0]
             else:
                 cl_cand = self.get_nearest_cl(cl_cands_target[i], init_pred_global['reg'][i])
-
+            cl_cand = cl_cand[:100]
             ego_fut = ego_fut_traj[i][0]
             mask = torch.zeros_like(ego_fut)
             mask = torch.repeat_interleave(torch.repeat_interleave(mask, 4, dim=0)[:100, 0].unsqueeze(dim=0), 30, dim=0)
+            ego_pos = ego_fut
+            ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
+            ego_dist, ego_idx = torch.min(ego_dists, dim=0)
 
             sur_pos = init_pred_global['reg'][i][0, :, :, :]
             sur_dists = [torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - sur_pos[i, :], dim=2) for i in range(6)]
@@ -230,23 +240,18 @@ class EgoReactEncodeNet(nn.Module):
                 sur_dist_tmp, sur_idx_tmp = torch.min(sur_dists[j], dim=0)
                 sur_dist.append(sur_dist_tmp)
                 sur_idx.append(sur_idx_tmp)
+            sur_min_idx = min([min(sur_idx[ss]) for ss in range(6)])
+            min_idx = min(sur_min_idx, min(ego_idx))
 
             sur_disp = [cl_cand[sur_idx[i]] - sur_pos[i] for i in range(6)]
             sur_feat_1 = [mask.clone() for _ in range(6)]
             for jj in range(6):
-                sur_feat_1[jj][np.arange(30), sur_idx[jj]] = 1
+                sur_feat_1[jj][np.arange(30), sur_idx[jj]-min_idx] = 1
             sur_feat = torch.cat([torch.cat([sur_feat_1[i], sur_disp[i]], dim=1).unsqueeze(dim=0) for i in range(6)], dim=0)
 
-            ego_pos = ego_fut
-            try:
-                ego_dists = torch.norm(torch.repeat_interleave(cl_cand.unsqueeze(dim=1), 30, dim=1) - ego_pos, dim=2)
-            except:
-                print(cl_cand)
-                print(ego_pos)
-            ego_dist, ego_idx = torch.min(ego_dists, dim=0)
             ego_disp = cl_cand[ego_idx] - ego_pos
             ego_feat_1 = mask.clone()
-            ego_feat_1[np.arange(30),ego_idx] = 1
+            ego_feat_1[np.arange(30),ego_idx-min_idx] = 1
             ego_feat = torch.repeat_interleave(torch.cat([ego_feat_1, ego_disp], dim=1).unsqueeze(dim=0), 6, dim=0)
             feat = torch.cat([ego_feat, sur_feat], dim=-1)
             reformed.append(feat)
