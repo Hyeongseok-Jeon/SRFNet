@@ -122,14 +122,14 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=False)
+    dataset = Dataset(config["train_split"], config, train=True)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
     train_loader = DataLoader(
         dataset,
         batch_size=config["batch_size"],
-        num_workers=24,
+        num_workers=config["workers"],
         sampler=train_sampler,
         collate_fn=collate_fn,
         pin_memory=True,
