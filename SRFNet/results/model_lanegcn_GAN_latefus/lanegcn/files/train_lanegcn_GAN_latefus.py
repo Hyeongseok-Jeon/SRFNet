@@ -197,7 +197,6 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         bce_dis_pred = loss_out['bce_dis_pred']
         bce_dis_gt = loss_out['bce_dis_gt']
 
-        opt_enc.opt.synchronize()
         opt_enc.zero_grad()
         loss_encoder = kl_loss + mae_hidden_loss
         loss_encoder.backward()

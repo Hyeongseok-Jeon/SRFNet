@@ -1,3 +1,6 @@
+# Copyright (c) 2020 Uber Technologies, Inc.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import sys
 import os
 
@@ -23,22 +26,21 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 import horovod.torch as hvd
+from SRFNet.utils import gpu
 from torch.utils.data.distributed import DistributedSampler
-from utils import Logger, load_pretrain
+from SRFNet.utils import Logger, load_pretrain
 from mpi4py import MPI
 
-# import SRFNet.model_lanegcn_GAN_latefus as model
 comm = MPI.COMM_WORLD
 hvd.init()
 torch.cuda.set_device(hvd.local_rank())
 
 root_path = os.path.dirname(os.path.abspath(__file__))
-# root_path = os.getcwd()
 sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="model_lanegcn_GAN_latefus", type=str, metavar="MODEL", help="model name"
+    "-m", "--model", default="model_lanegcn", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -48,13 +50,12 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="vanilla_gan", type=str
+    "--case", default="wrapper_mid_fusion", type=str
 )
 
-# parser.add_argument("--mode", default='client')
-# parser.add_argument("--port", default=52162)
-margin = 0.35
-equilibrium = 0.68
+parser.add_argument(
+    "--transfer", default=['lanegcn', 'maneuver'], type=list
+)
 
 
 def main():
@@ -69,11 +70,20 @@ def main():
     model = import_module(args.model)
     config, Dataset, collate_fn, net, loss, post_process, opt, params = model.get_model(args)
 
+    if 'lanegcn' in args.transfer:
+        pre_trained_weight = torch.load(os.path.join(root_path, "../LaneGCN/pre_trained") + '/36.000.ckpt')
+        pretrained_dict = pre_trained_weight['state_dict']
+        new_model_dict = net.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
+        new_model_dict.update(pretrained_dict)
+        net.load_state_dict(new_model_dict)
+
     if config["horovod"]:
         for i in range(len(opt)):
-            opt[i].opt = hvd.DistributedOptimizer(
-                opt[i].opt, named_parameters=params[i], backward_passes_per_step=10
-            )
+            if opt[i] != None:
+                opt[i].opt = hvd.DistributedOptimizer(
+                    opt[i].opt, named_parameters=params[i]
+                )
 
     if args.resume or args.weight:
         ckpt_path = args.resume or args.weight
@@ -122,14 +132,14 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=False)
+    dataset = Dataset(config["train_split"], config, train=True)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
     train_loader = DataLoader(
         dataset,
         batch_size=config["batch_size"],
-        num_workers=24,
+        num_workers=config["workers"],
         sampler=train_sampler,
         collate_fn=collate_fn,
         pin_memory=True,
@@ -181,83 +191,55 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 
     start_time = time.time()
     metrics = dict()
-
-    opt_enc = opt[0]
-    opt_gen = opt[1]
-    opt_dis = opt[2]
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
-        output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
-        loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
+        data_copy = []
+        for j in range(len(opt)):
+            data_copy.append(data.copy())
+        outputs = []
+        losses = []
 
-        reconstruction_loss = loss_out['reconstruction_loss']
-        kl_loss = loss_out['kl_loss']
-        mae_hidden_loss = loss_out['mae_hidden_loss']
-        bce_dis_pred = loss_out['bce_dis_pred']
-        bce_dis_gt = loss_out['bce_dis_gt']
+        output0 = net(data_copy[0])
+        outputs.append(output0[0])
+        loss_out0 = loss[0](outputs[0], data_copy[0])
+        if opt[0] != None:
+            opt[0].zero_grad()
+            loss_out0["loss"].backward()
+            lr0 = opt[0].step(epoch)
+        losses.append(loss_out0)
 
-        opt_enc.opt.synchronize()
-        opt_enc.zero_grad()
-        loss_encoder = kl_loss + mae_hidden_loss
-        loss_encoder.backward()
-        lr_enc = opt_enc.step(epoch)
+        if len(opt) > 1:
+            gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
+            data_copy[1]['gt_new'] = gt_new
+            output1 = net(data_copy[1])
+            outputs.append(output1[1])
+            loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
+            opt[1].zero_grad()
+            loss_out1["loss"].backward()
+            lr1 = opt[1].step(epoch)
+            losses.append(loss_out1)
 
-        train_dis = True
-        train_dec = True
-        if bce_dis_gt < equilibrium - margin or bce_dis_pred < equilibrium - margin:
-            train_dis = False
-        if bce_dis_gt > equilibrium + margin or bce_dis_pred > equilibrium + margin:
-            train_dec = False
-        if train_dec is False and train_dis is False:
-            train_dis = True
-            train_dec = True
-
-        if train_dec:
-            opt_gen.opt.synchronize()
-            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
-            loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
-
-            reconstruction_loss = loss_out['reconstruction_loss']
-            kl_loss = loss_out['kl_loss']
-            mae_hidden_loss = loss_out['mae_hidden_loss']
-            bce_gen_sample = loss_out['bce_gen_sample']
-            bce_gen_pred = loss_out['bce_gen_pred']
-
-            opt_gen.zero_grad()
-            loss_generator = 0.1 * mae_hidden_loss + (1.0 - 0.1) * (bce_gen_pred + bce_gen_sample)
-            loss_generator.backward()
-            lr_gen = opt_gen.step(epoch)
-
-        if train_dis:
-            opt_dis.opt.synchronize()
-            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
-            loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
-
-            reconstruction_loss = loss_out['reconstruction_loss']
-            bce_dis_sample = loss_out['bce_dis_sample']
-            bce_dis_gt = loss_out['bce_dis_gt']
-
-            opt_dis.zero_grad()
-            loss_discriminator = bce_dis_gt + bce_dis_sample
-            loss_discriminator.backward()
-            lr_gen = opt_dis.step(epoch)
-
-        out_added = output[0]
-        post_out = post_process(out_added, data)
-        post_process.append(metrics, loss_out, post_out)
+        out_added = outputs[0]
+        if len(opt) > 1:
+            out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+        post_out = post_process(out_added, data_copy[0])
+        post_process.append(metrics, loss_out0, post_out)
 
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
                 num_iters % save_iters == 0 or epoch >= config["num_epochs"]
         ):
-            save_ckpt(net, opt_enc, opt_gen, opt_dis, config["save_dir"], epoch)
+            save_ckpt(net, opt, config["save_dir"], epoch)
 
         if num_iters % display_iters == 0:
             dt = time.time() - start_time
             metrics = sync(metrics)
             if hvd.rank() == 0:
-                post_process.display(metrics, dt, epoch, lr_enc)
+                if opt[0] != None:
+                    post_process.display(metrics, dt, epoch, lr0)
+                else:
+                    post_process.display(metrics, dt, epoch, lr1)
             start_time = time.time()
             metrics = dict()
 
@@ -272,14 +254,31 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
 def val(config, data_loader, net, loss, post_process, epoch):
     start_time = time.time()
     metrics = dict()
-    with torch.no_grad():
-        for i, data in enumerate(data_loader):
-            data = dict(data)
-            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
-            loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
-            out_added =  output[0]
-            post_out = post_process(out_added, data)
-            post_process.append(metrics, loss_out, post_out)
+    for i, data in enumerate(data_loader):
+        data = dict(data)
+        data_copy = []
+        for j in range(len(loss)):
+            data_copy.append(data)
+        outputs = []
+        losses = []
+        output0 = net(data_copy[0])
+        outputs.append(output0[0])
+        loss_out0 = loss[0](outputs[0], data_copy[0])
+        losses.append(loss_out0)
+
+        if len(loss) > 1:
+            gt_new = [(gpu(torch.repeat_interleave(data_copy[0]['gt_preds'][i].unsqueeze(dim=1), 6, dim=1)) - output0[0]['reg'][i]).detach() for i in range(len(data_copy[0]['gt_preds']))]
+            data_copy[1]['gt_new'] = gt_new
+            output1 = net(data_copy[1])
+            outputs.append(output1[1])
+            loss_out1 = loss[1](outputs[1], data_copy[1], losses[0])
+            losses.append(loss_out1)
+
+        out_added = outputs[0]
+        if len(loss) > 1:
+            out_added['reg'] = [out_added['reg'][i] + outputs[1]['reg'][i] for i in range(len(out_added['reg']))]
+        post_out = post_process(out_added, data_copy[0])
+        post_process.append(metrics, loss_out0, post_out)
 
     dt = time.time() - start_time
     metrics = sync(metrics)
@@ -287,7 +286,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
         post_process.display(metrics, dt, epoch)
 
 
-def save_ckpt(net, opt_enc, opt_gen, opt_dis, save_dir, epoch):
+def save_ckpt(net, opt, save_dir, epoch):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
@@ -296,10 +295,22 @@ def save_ckpt(net, opt_enc, opt_gen, opt_dis, save_dir, epoch):
         state_dict[key] = state_dict[key].cpu()
 
     save_name = "%3.3f.ckpt" % epoch
-    torch.save(
-        {"epoch": epoch, "state_dict": state_dict, "opt_enc_state": opt_enc.opt.state_dict(), "opt_gen_state": opt_gen.opt.state_dict(), "opt_dis_state": opt_dis.opt.state_dict()},
-        os.path.join(save_dir, save_name),
-    )
+    if len(opt) == 1:
+        torch.save(
+            {"epoch": epoch, "state_dict": state_dict, "opt_state": opt[0].opt.state_dict()},
+            os.path.join(save_dir, save_name),
+        )
+    elif len(opt) == 2:
+        if opt[0] == None:
+            torch.save(
+                {"epoch": epoch, "state_dict": state_dict, "opt2_state": opt[1].opt.state_dict()},
+                os.path.join(save_dir, save_name),
+            )
+        else:
+            torch.save(
+                {"epoch": epoch, "state_dict": state_dict, "opt1_state": opt[0].opt.state_dict(), "opt2_state": opt[1].opt.state_dict()},
+                os.path.join(save_dir, save_name),
+            )
 
 
 def sync(data):
@@ -314,19 +325,9 @@ def sync(data):
             data[key] += data_list[i][key]
     return data
 
-def get_out(net, data):
-    output, dis, dis_layer, mus, log_vars, target_gt = net(data)
-    traj_gt = target_gt
-    traj_pred = output[0]['reg']
-    layer_gt = [dis_layer[0][i:i + 1, :] for i in range(len(traj_gt))]
-    layer_pred = [dis_layer[1][6 * i:6 * (i + 1), :] for i in range(len(traj_gt))]
-    label_gt = [dis[0][i] for i in range(len(traj_gt))]
-    label_pred = [dis[1][6 * i:6 * (i + 1), 0] for i in range(len(traj_gt))]
-    label_sample = [dis[2][6 * i:6 * (i + 1), 0] for i in range(len(traj_gt))]
-    mus = [mus[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
-    variances = [log_vars[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
-
-    return output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances
 
 if __name__ == "__main__":
     main()
+
+# TODO: modify prediction head : classify and regression
+# TODO: GAN wrapper (with vanila GAN, conditional GAN, info GAN)
