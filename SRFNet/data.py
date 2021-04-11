@@ -163,7 +163,6 @@ class ArgoDataset(Dataset):
                 data[key] = [data[key]]
 
             with torch.no_grad():
-                print(idx)
                 init_pred_global = self.base_model(data)
             init_pred_global_con = init_pred_global[0]
             init_pred_global_con['reg'] = [init_pred_global_con['reg'][i][1:2, :, :, :] for i in range(len(init_pred_global_con['reg']))]
