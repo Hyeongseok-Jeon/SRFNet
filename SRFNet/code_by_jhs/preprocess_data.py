@@ -135,8 +135,8 @@ def gen(mod, pre_model, config):
     dataset = Dataset(split, config, train=train)
     data_loader = DataLoader(
         dataset,
-        batch_size=config["batch_size"],
-        num_workers=config["workers"],
+        batch_size=2,
+        num_workers=2,
         shuffle=False,
         collate_fn=collate_fn,
         pin_memory=True,
@@ -165,8 +165,8 @@ def gen(mod, pre_model, config):
             init_pred_global_np = [dict_batch]
 
             init_pred_global_con_np = dict()
-            init_pred_global_con_np['cls'] = [init_pred_global_con['cls'][j]]
-            init_pred_global_con_np['reg'] = [init_pred_global_con['reg'][j]]
+            init_pred_global_con_np['cls'] = [init_pred_global_con['cls'][j].cpu().numpy()]
+            init_pred_global_con_np['reg'] = [init_pred_global_con['reg'][j].cpu().numpy()]
 
             dataset.split[data["idx"][j]]['data'] = hid_np
             dataset.split[data["idx"][j]]['init_pred_global'] = init_pred_global_np
