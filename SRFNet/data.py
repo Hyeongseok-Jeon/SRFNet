@@ -22,7 +22,7 @@ class ArgoDataset(Dataset):
             if train:
                 self.split = np.load(self.config['preprocess_train'], allow_pickle=True)
             else:
-                self.split = np.load(self.config['preprocess_val'], allow_pickle=True)
+                self.split = np.load(config['preprocess_val'], allow_pickle=True)
         else:
             self.avl = ArgoverseForecastingLoader(split)
             self.am = ArgoverseMap()

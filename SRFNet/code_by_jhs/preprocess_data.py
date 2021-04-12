@@ -177,17 +177,7 @@ def gen(mod, pre_model, config):
             print(i, time.time() - t)
             t = time.time()
 
-    dataset = PreprocessDataset(dataset.split, config, train=True)
-    data_loader = DataLoader(
-        dataset,
-        batch_size=config['batch_size'],
-        num_workers=config['workers'],
-        shuffle=False,
-        collate_fn=from_numpy,
-        pin_memory=True,
-        drop_last=False)
-
-    modify(config, data_loader, dir)
+    modify(config, dataset, dir)
 
 
 def to_numpy(data):
@@ -215,9 +205,9 @@ def to_int16(data):
 
 
 
-def modify(config, data_loader, save):
+def modify(config, dataset, save):
     t = time.time()
-    store = data_loader.dataset.split
+    store = dataset.split
     # for i, data in enumerate(data_loader):
     #     data = [dict(x) for x in data]
     #
