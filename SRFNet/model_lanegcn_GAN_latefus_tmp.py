@@ -64,10 +64,10 @@ config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
 # Preprocessed Dataset
 config["preprocess"] = True  # whether use preprocess or not
 config["preprocess_train"] = os.path.join(
-    root_path, "dataset", "preprocess", "train_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess_GAN", "train_crs_dist6_angle90.p"
 )
 config["preprocess_val"] = os.path.join(
-    root_path, "dataset", "preprocess", "val_crs_dist6_angle90.p"
+    root_path, "dataset", "preprocess_GAN", "val_crs_dist6_angle90.p"
 )
 config['preprocess_test'] = os.path.join(root_path, "dataset", 'preprocess', 'test_test.p')
 config["training"] = True

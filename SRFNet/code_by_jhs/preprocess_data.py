@@ -26,7 +26,7 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
+from SRFNet.code_by_jhs.data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
 from SRFNet.model_lanegcn import get_model
 import warnings
 warnings.filterwarnings("ignore")
@@ -143,7 +143,6 @@ def gen(mod, pre_model, config):
         drop_last=False,
     )
 
-    stores = [None for x in range(data_num)]
     t = time.time()
     for i, data in enumerate(tqdm(data_loader)):
         data = dict(data)
@@ -159,34 +158,17 @@ def gen(mod, pre_model, config):
             cl_cands = data['cl_cands']
             cl_cands_target = to_numpy(cl_cands[j][1])
             hid = reform(ego_fut_traj, cl_cands_target, init_pred_global_con['reg'][j].cpu())
-            for key in [
-                "idx",
-                "city",
-                "feats",
-                "ctrs",
-                "orig",
-                "theta",
-                "rot",
-                "gt_preds",
-                "has_preds",
-                "file_name",
-                "ego_feats",
-                'cl_cands',
-                'gt_cl_cands'
-            ]:
-                store[key] = to_numpy(data[key][j])
 
-            store['data'] = hid
-            store['init_pred_global'] = init_pred_global
-            store['init_pred_global_con'] = init_pred_global_con
+            dataset.split[data["idx"][j]]['data'] = hid
+            dataset.split[data["idx"][j]]['init_pred_global'] = init_pred_global
+            dataset.split[data["idx"][j]]['init_pred_global_con'] = init_pred_global_con
 
-            stores[store["idx"]] = store
 
         if (i + 1) % 100 == 0:
             print(i, time.time() - t)
             t = time.time()
 
-    dataset = PreprocessDataset(stores, config, train=True)
+    dataset = PreprocessDataset(dataset.split, config, train=True)
     data_loader = DataLoader(
         dataset,
         batch_size=config['batch_size'],
