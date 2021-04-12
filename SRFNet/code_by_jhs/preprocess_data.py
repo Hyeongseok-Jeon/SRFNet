@@ -149,7 +149,6 @@ def gen(mod, pre_model, config):
         with torch.no_grad():
             init_pred_global = pre_model(data)
         for j in range(len(data["idx"])):
-            store = dict()
             init_pred_global_con = init_pred_global[0].copy()
             init_pred_global_con['reg'][j] = init_pred_global_con['reg'][j][1:2, :, :, :].cpu()
 
@@ -159,9 +158,19 @@ def gen(mod, pre_model, config):
             cl_cands_target = to_numpy(cl_cands[j][1])
             hid = reform(ego_fut_traj, cl_cands_target, init_pred_global_con['reg'][j].cpu())
 
-            dataset.split[data["idx"][j]]['data'] = hid
-            dataset.split[data["idx"][j]]['init_pred_global'] = init_pred_global
-            dataset.split[data["idx"][j]]['init_pred_global_con'] = init_pred_global_con
+            hid_np = hid.numpy()
+            dict_batch = dict()
+            dict_batch['cls'] = [init_pred_global[0]['cls'][j].cpu().numpy()]
+            dict_batch['reg'] = [init_pred_global[0]['reg'][j].cpu().numpy()]
+            init_pred_global_np = [dict_batch]
+
+            init_pred_global_con_np = dict()
+            init_pred_global_con_np['cls'] = [init_pred_global_con['cls'][j]]
+            init_pred_global_con_np['reg'] = [init_pred_global_con['reg'][j]]
+
+            dataset.split[data["idx"][j]]['data'] = hid_np
+            dataset.split[data["idx"][j]]['init_pred_global'] = init_pred_global_np
+            dataset.split[data["idx"][j]]['init_pred_global_con'] = init_pred_global_con_np
 
 
         if (i + 1) % 100 == 0:
