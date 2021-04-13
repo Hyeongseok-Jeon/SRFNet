@@ -50,7 +50,9 @@ parser.add_argument(
 parser.add_argument(
     "--case", default="vanilla_gan", type=str
 )
-
+parser.add_argument(
+    "--gpu_id", default=0, type=int
+)
 # parser.add_argument("--mode", default='client')
 # parser.add_argument("--port", default=52162)
 margin = 0.35

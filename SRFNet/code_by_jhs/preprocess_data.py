@@ -143,7 +143,6 @@ def gen(mod, pre_model, config):
         drop_last=False,
     )
 
-    stores = [None for x in range(data_num)]
     t = time.time()
     for i, data in enumerate(tqdm(data_loader)):
         data = dict(data)
@@ -171,35 +170,36 @@ def gen(mod, pre_model, config):
             init_pred_global_con_np['cls'] = [init_pred_global_con['cls'][j].cpu().numpy()]
             init_pred_global_con_np['reg'] = [init_pred_global_con['reg'][j].cpu().numpy()]
 
-            store['data'] = hid_np
-            store['init_pred_global'] = init_pred_global_np
-            store['init_pred_global_con'] = init_pred_global_con_np
-
-            for key in [
-                "idx",
-                "city",
-                "feats",
-                "ctrs",
-                "orig",
-                "theta",
-                "rot",
-                "gt_preds",
-                "has_preds",
-                'file_name',
-                'ego_feats',
-                "graph",
-                'cl_cands',
-                'gt_cl_cands',
-            ]:
-                store[key] = to_numpy(data[key][j])
-                if key in ["graph"]:
-                    store[key] = to_int16(store[key])
-            stores[store["idx"]] = store
+            dataset.split[data['idx'][j]]['data'] = hid_np
+            dataset.split[data['idx'][j]]['init_pred_global'] = init_pred_global_np
+            dataset.split[data['idx'][j]]['init_pred_global_con'] = init_pred_global_con_np
+            #
+            # for key in [
+            #     "idx",
+            #     "city",
+            #     "feats",
+            #     "ctrs",
+            #     "orig",
+            #     "theta",
+            #     "rot",
+            #     "gt_preds",
+            #     "has_preds",
+            #     'file_name',
+            #     'ego_feats',
+            #     "graph",
+            #     'cl_cands',
+            #     'gt_cl_cands',
+            # ]:
+            #     store[key] = to_numpy(data[key][j])
+            #     if key in ["graph"]:
+            #         store[key] = to_int16(store[key])
+            # stores[store["idx"]] = store
 
         if (i + 1) % 100 == 0:
             print(i, time.time() - t)
             t = time.time()
 
+    stores = dataset.split
     dataset = PreprocessDataset(stores, config, train=True)
     data_loader = DataLoader(
         dataset,
@@ -211,7 +211,6 @@ def gen(mod, pre_model, config):
         drop_last=False)
 
     modify(config, data_loader, dir)
-
 
 
 def to_numpy(data):

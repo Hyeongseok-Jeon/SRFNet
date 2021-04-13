@@ -48,9 +48,9 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 8
-config["val_batch_size"] = 8
-config["workers"] = 8
+config["batch_size"] = 16
+config["val_batch_size"] = 16
+config["workers"] = 0
 config["val_workers"] = config["workers"]
 
 """Dataset"""
@@ -116,7 +116,7 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
         self.maneu_pred = maneuver_pred_net
 
-        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
+        self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
         self.discriminator = DiscriminateNet(config)
 
@@ -139,11 +139,11 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
         if mod == 'enc':
             mus_enc, log_vars = self.ego_react_encoder(ego_fut_traj, hid)
-            noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(self.args.gpu_id), requires_grad=True)
             delta = self.generator(mus_enc, log_vars, noise, batch_num)
             init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [dis_real, dis_pred], [dis_layer_real, dis_layer_pred] = self.discriminator(data, init_pred_global, batch_num)
-            noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(self.args.gpu_id), requires_grad=True)
             delta = self.generator(0, 1, noise_vae, batch_num)
             init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
@@ -153,11 +153,11 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         elif mod == 'gen':
             with torch.no_grad():
                 mus_enc, log_vars = self.ego_react_encoder(ego_fut_traj, hid)
-                noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+                noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(self.args.gpu_id), requires_grad=True)
             delta = self.generator(mus_enc, log_vars, noise, batch_num)
             init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [dis_real, dis_pred], [dis_layer_real, dis_layer_pred] = self.discriminator(data, init_pred_global, batch_num)
-            noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+            noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(self.args.gpu_id), requires_grad=True)
             delta = self.generator(0, 1, noise_vae, batch_num)
             init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
@@ -167,12 +167,12 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         else:
             with torch.no_grad():
                 mus_enc, log_vars = self.ego_react_encoder(ego_fut_traj, hid)
-                noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+                noise = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(self.args.gpu_id), requires_grad=True)
                 delta = self.generator(mus_enc, log_vars, noise, batch_num)
                 init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [dis_real, dis_pred], [dis_layer_real, dis_layer_pred] = self.discriminator(data, init_pred_global, batch_num)
             with torch.no_grad():
-                noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(), requires_grad=True)
+                noise_vae = Variable(torch.randn(torch.cat(mus_enc, dim=1).shape).cuda(self.args.gpu_id), requires_grad=True)
                 delta = self.generator(0, 1, noise_vae, batch_num)
                 init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
@@ -326,8 +326,9 @@ class DiscriminateNet(nn.Module):
 
 
 class Loss(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, args):
         super(Loss, self).__init__()
+        self.args = args
         self.config = config
         self.pred_loss = PredLoss(config)
         self.bceloss = nn.BCEWithLogitsLoss(reduction='none')
@@ -356,11 +357,11 @@ class Loss(nn.Module):
             kl_tot = kl_tot + kl
             mae_tot = mae_tot + mae
 
-        bce_dis_gt = torch.mean(self.bceloss(label_gt, Variable(torch.ones_like(label_gt.data).cuda(), requires_grad=False)))
-        bce_dis_pred = torch.mean(self.bceloss(label_pred, Variable(torch.zeros_like(label_pred.data).cuda(), requires_grad=False)))
-        bce_dis_sample = torch.mean(self.bceloss(label_sample, Variable(torch.zeros_like(label_sample.data).cuda(), requires_grad=False)))
-        bce_gen_pred = torch.mean(self.bceloss(label_pred, Variable(torch.ones_like(label_pred.data).cuda(), requires_grad=False)))
-        bce_gen_sample = torch.mean(self.bceloss(label_sample, Variable(torch.ones_like(label_sample.data).cuda(), requires_grad=False)))
+        bce_dis_gt = torch.mean(self.bceloss(label_gt, Variable(torch.ones_like(label_gt.data).cuda(self.args.gpu_id), requires_grad=False)))
+        bce_dis_pred = torch.mean(self.bceloss(label_pred, Variable(torch.zeros_like(label_pred.data).cuda(self.args.gpu_id), requires_grad=False)))
+        bce_dis_sample = torch.mean(self.bceloss(label_sample, Variable(torch.zeros_like(label_sample.data).cuda(self.args.gpu_id), requires_grad=False)))
+        bce_gen_pred = torch.mean(self.bceloss(label_pred, Variable(torch.ones_like(label_pred.data).cuda(self.args.gpu_id), requires_grad=False)))
+        bce_gen_sample = torch.mean(self.bceloss(label_sample, Variable(torch.ones_like(label_sample.data).cuda(self.args.gpu_id), requires_grad=False)))
 
         reconstruction_loss = torch.sum(sum(nle_tot)) / (len(nle_tot) * 60)
         kl_loss = torch.sum(sum(kl_tot)) / (len(kl_tot) * kl_tot[0].shape[0] * kl_tot[0].shape[1])
@@ -557,10 +558,10 @@ def get_model(args):
     param_gen = [p for n, p in params_gen]
     param_dis = [p for n, p in params_dis]
     opt = [Optimizer(param_enc, config), Optimizer(param_gen, config), Optimizer(param_dis, config)]
-    loss = Loss(config).cuda()
+    loss = Loss(config, args).cuda(args.gpu_id)
     params = [params_enc, params_gen, params_dis]
 
-    net = net.cuda()
+    net = net.cuda(args.gpu_id)
     post_process = PostProcess(config, args).cuda()
     config["save_dir"] = os.path.join(
         config["save_dir"], args.case
