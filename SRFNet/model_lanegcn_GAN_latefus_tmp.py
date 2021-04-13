@@ -50,7 +50,7 @@ if not os.path.isabs(config["save_dir"]):
 
 config["batch_size"] = 32
 config["val_batch_size"] = 32
-config["workers"] = 48
+config["workers"] = 0
 config["val_workers"] = config["workers"]
 
 """Dataset"""
