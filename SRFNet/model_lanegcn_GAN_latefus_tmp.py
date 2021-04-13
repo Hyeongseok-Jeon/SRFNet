@@ -48,9 +48,9 @@ if "save_dir" not in config:
 if not os.path.isabs(config["save_dir"]):
     config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-config["batch_size"] = 128
-config["val_batch_size"] = 128
-config["workers"] = 0
+config["batch_size"] = 32
+config["val_batch_size"] = 32
+config["workers"] = 48
 config["val_workers"] = config["workers"]
 
 """Dataset"""
@@ -114,7 +114,7 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
         new_model_dict.update(pretrained_dict)
         maneuver_pred_net.load_state_dict(new_model_dict)
 
-        self.maneu_pred = maneuver_pred_net
+        self.maneu_pred = maneuver_pred_net.cuda(args.gpu_id)
 
         self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
