@@ -12,10 +12,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from SRFNet.data import ArgoDataset, collate_fn
-from SRFNet.utils import gpu, to_long, Optimizer, StepLR
+from data import ArgoDataset, collate_fn
+from utils import gpu, to_long, Optimizer, StepLR
 
-from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
+from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 

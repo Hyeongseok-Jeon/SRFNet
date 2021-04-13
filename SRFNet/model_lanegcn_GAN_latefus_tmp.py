@@ -50,7 +50,7 @@ if not os.path.isabs(config["save_dir"]):
 
 config["batch_size"] = 8
 config["val_batch_size"] = 8
-config["workers"] = 64
+config["workers"] = 8
 config["val_workers"] = config["workers"]
 
 """Dataset"""
@@ -122,10 +122,11 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
     def forward(self, data, mod):
         batch_num = len(data['gt_preds'])
-        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(len(data['gt_preds']))]
+        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(batch_num)]
 
-        hid = gpu(data['data'])
-        init_pred_global_raw = gpu(data['init_pred_global'])
+        hid =[gpu(data['data'][i][0]) for i in range(batch_num)]
+
+        init_pred_global_raw = [gpu(data['init_pred_global'][i][0]) for i in range(batch_num)]
         init_pred = dict()
         init_pred['cls'] = []
         init_pred['reg'] = []
@@ -205,8 +206,8 @@ class EgoReactEncodeNet(nn.Module):
         self.log_varience_gen = nn.Linear(config['n_actor'], config['gan_noise_dim'])
 
     def forward(self, ego_fut_traj, hid):
-        data = hid
-        data_cat = torch.cat([to_float(data[i][0]).view(-1, 204) for i in range(len(data))], dim=0)
+        datas = hid
+        data_cat = torch.cat([to_float(datas[i]).view(-1, 204) for i in range(len(datas))], dim=0)
 
         hid = F.relu(self.enc1(data_cat))
         hid = F.relu(self.enc2(hid))

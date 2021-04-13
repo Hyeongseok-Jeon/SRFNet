@@ -81,6 +81,7 @@ class ArgoDataset(Dataset):
                 raster = self.map_query.query(region, data['theta'], data['city'])
 
                 data['raster'] = raster
+            data['idx'] = idx
             return data
 
         data = self.read_argo_data(idx)

@@ -748,7 +748,7 @@ class ReactNet(nn.Module):
             cat_tot.append(cat.unsqueeze(dim=1))
         cat_tot = torch.cat(cat_tot, dim=1)
 
-        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze())
+        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze(dim=-1))
 
         return pred_inter
 

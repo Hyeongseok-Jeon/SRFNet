@@ -16,7 +16,7 @@ from data import ArgoDataset, collate_fn
 from utils import gpu, to_long, Optimizer, StepLR
 
 from layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
-from SRFNet.model_maneuver_pred import get_model as get_manuever_model
+from model_maneuver_pred import get_model as get_manuever_model
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
@@ -144,7 +144,7 @@ class lanegcn(nn.Module):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
                 1, 1, 1, -1
             )
-        return [out]
+        return [], out,[],[],[],[],[],[]
 
 
 class wrapper_mid(nn.Module):
