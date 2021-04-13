@@ -260,7 +260,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             metrics = dict()
 
         if num_iters % val_iters == 0:
-            val(config, train_loader, net, loss, post_process, epoch)
+            val(config, val_loader, net, loss, post_process, epoch)
 
         if epoch >= config["num_epochs"]:
             val(config, val_loader, net, loss, post_process, epoch)
