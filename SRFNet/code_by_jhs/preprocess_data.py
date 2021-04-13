@@ -63,8 +63,8 @@ def main():
     )
     config['preprocess_test'] = os.path.join(root_path,"SRFNet", "dataset", 'preprocess', 'test_test.p')
     config["preprocess"] = True  # we use raw data to generate preprocess data
-    config["val_workers"] = 32
-    config["workers"] = 32
+    config["val_workers"] = 8
+    config["workers"] = 8
     config['cross_dist'] = 6
     config['cross_angle'] = 0.5 * np.pi
     config["train_split"] = os.path.join(
@@ -72,8 +72,8 @@ def main():
     )
     config["val_split"] = os.path.join(root_path, "LaneGCN", "dataset/val/data")
     config["test_split"] = os.path.join(root_path,"LaneGCN", "dataset/test_obs/data")
-    config["batch_size"] = 32
-    config["val_batch_size"] = 32
+    config["batch_size"] = 8
+    config["val_batch_size"] = 8
     config["rot_aug"] = False
     config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
     config["num_scales"] = 6
@@ -135,20 +135,23 @@ def gen(mod, pre_model, config):
     dataset = Dataset(split, config, train=train)
     data_loader = DataLoader(
         dataset,
-        batch_size=2,
-        num_workers=2,
+        batch_size=config['batch_size'],
+        num_workers=config['workers'],
         shuffle=False,
         collate_fn=collate_fn,
         pin_memory=True,
         drop_last=False,
     )
 
+    stores = [None for x in range(data_num)]
     t = time.time()
     for i, data in enumerate(tqdm(data_loader)):
         data = dict(data)
         with torch.no_grad():
             init_pred_global = pre_model(data)
+
         for j in range(len(data["idx"])):
+            store = dict()
             init_pred_global_con = init_pred_global[0].copy()
             init_pred_global_con['reg'][j] = init_pred_global_con['reg'][j][1:2, :, :, :].cpu()
 
@@ -168,16 +171,47 @@ def gen(mod, pre_model, config):
             init_pred_global_con_np['cls'] = [init_pred_global_con['cls'][j].cpu().numpy()]
             init_pred_global_con_np['reg'] = [init_pred_global_con['reg'][j].cpu().numpy()]
 
-            dataset.split[data["idx"][j]]['data'] = hid_np
-            dataset.split[data["idx"][j]]['init_pred_global'] = init_pred_global_np
-            dataset.split[data["idx"][j]]['init_pred_global_con'] = init_pred_global_con_np
+            store['data'] = hid_np
+            store['init_pred_global'] = init_pred_global_np
+            store['init_pred_global_con'] = init_pred_global_con_np
 
+            for key in [
+                "idx",
+                "city",
+                "feats",
+                "ctrs",
+                "orig",
+                "theta",
+                "rot",
+                "gt_preds",
+                "has_preds",
+                'file_name',
+                'ego_feats',
+                "graph",
+                'cl_cands',
+                'gt_cl_cands',
+            ]:
+                store[key] = to_numpy(data[key][j])
+                if key in ["graph"]:
+                    store[key] = to_int16(store[key])
+            stores[store["idx"]] = store
 
         if (i + 1) % 100 == 0:
             print(i, time.time() - t)
             t = time.time()
 
-    modify(config, dataset, dir)
+    dataset = PreprocessDataset(stores, config, train=True)
+    data_loader = DataLoader(
+        dataset,
+        batch_size=config['batch_size'],
+        num_workers=config['workers'],
+        shuffle=False,
+        collate_fn=from_numpy,
+        pin_memory=True,
+        drop_last=False)
+
+    modify(config, data_loader, dir)
+
 
 
 def to_numpy(data):
@@ -204,25 +238,24 @@ def to_int16(data):
     return data
 
 
-
-def modify(config, dataset, save):
+def modify(config, data_loader, save):
     t = time.time()
-    store = dataset.split
-    # for i, data in enumerate(data_loader):
-    #     data = [dict(x) for x in data]
-    #
-    #     out = []
-    #     for j in range(len(data)):
-    #         out.append(preprocess(to_long(gpu(data[j])), config['cross_dist']))
-    #
-    #     for j, graph in enumerate(out):
-    #         idx = graph['idx']
-    #         store[idx]['graph']['left'] = graph['left']
-    #         store[idx]['graph']['right'] = graph['right']
-    #
-    #     if (i + 1) % 100 == 0:
-    #         print((i + 1) * config['batch_size'], time.time() - t)
-    #         t = time.time()
+    store = data_loader.dataset.split
+    for i, data in enumerate(data_loader):
+        data = [dict(x) for x in data]
+
+        out = []
+        for j in range(len(data)):
+            out.append(preprocess(to_long(gpu(data[j])), config['cross_dist']))
+
+        for j, graph in enumerate(out):
+            idx = graph['idx']
+            store[idx]['graph']['left'] = graph['left']
+            store[idx]['graph']['right'] = graph['right']
+
+        if (i + 1) % 100 == 0:
+            print((i + 1) * config['batch_size'], time.time() - t)
+            t = time.time()
 
     f = open(os.path.join(root_path, 'SRFNet', 'dataset', 'preprocess_GAN', os.path.basename(save)), 'wb')
     pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)

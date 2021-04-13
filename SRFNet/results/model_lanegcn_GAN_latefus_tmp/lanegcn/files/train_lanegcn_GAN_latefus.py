@@ -27,7 +27,7 @@ from torch.utils.data.distributed import DistributedSampler
 from utils import Logger, load_pretrain
 from mpi4py import MPI
 
-# import SRFNet.model_lanegcn_GAN_latefus_tmp as model
+# import SRFNet.model_lanegcn_GAN_latefus as model
 comm = MPI.COMM_WORLD
 hvd.init()
 torch.cuda.set_device(hvd.local_rank())
@@ -38,7 +38,7 @@ sys.path.insert(0, root_path)
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="model_lanegcn_GAN_latefus_tmp", type=str, metavar="MODEL", help="model name"
+    "-m", "--model", default="model_lanegcn_GAN_latefus", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -122,7 +122,7 @@ def main():
                 shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
 
     # Data loader for training
-    dataset = Dataset(config["train_split"], config, train=False)
+    dataset = Dataset(config["train_split"], config, train=True)
     train_sampler = DistributedSampler(
         dataset, num_replicas=hvd.size(), rank=hvd.rank()
     )
@@ -188,7 +188,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
-        output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data, 'enc')
+        output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
         loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
         reconstruction_loss = loss_out['reconstruction_loss']
@@ -197,6 +197,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         bce_dis_pred = loss_out['bce_dis_pred']
         bce_dis_gt = loss_out['bce_dis_gt']
 
+        opt_enc.opt.synchronize()
         opt_enc.zero_grad()
         loss_encoder = kl_loss + mae_hidden_loss
         loss_encoder.backward()
@@ -213,7 +214,8 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             train_dec = True
 
         if train_dec:
-            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data, 'gen')
+            opt_gen.opt.synchronize()
+            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
             loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
             reconstruction_loss = loss_out['reconstruction_loss']
@@ -228,7 +230,8 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             lr_gen = opt_gen.step(epoch)
 
         if train_dis:
-            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data, 'dis')
+            opt_dis.opt.synchronize()
+            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
             loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
             reconstruction_loss = loss_out['reconstruction_loss']
@@ -243,6 +246,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
         out_added = output[0]
         post_out = post_process(out_added, data)
         post_process.append(metrics, loss_out, post_out)
+
         num_iters = int(np.round(epoch * num_batches))
         if hvd.rank() == 0 and (
                 num_iters % save_iters == 0 or epoch >= config["num_epochs"]
@@ -273,7 +277,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
             data = dict(data)
             output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
             loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
-            out_added = output[0]
+            out_added =  output[0]
             post_out = post_process(out_added, data)
             post_process.append(metrics, loss_out, post_out)
 
@@ -310,9 +314,8 @@ def sync(data):
             data[key] += data_list[i][key]
     return data
 
-
-def get_out(net, data, mod):
-    output, dis, dis_layer, mus, log_vars, target_gt = net(data, mod)
+def get_out(net, data):
+    output, dis, dis_layer, mus, log_vars, target_gt = net(data)
     traj_gt = target_gt
     traj_pred = output[0]['reg']
     layer_gt = [dis_layer[0][i:i + 1, :] for i in range(len(traj_gt))]
@@ -324,7 +327,6 @@ def get_out(net, data, mod):
     variances = [log_vars[i].unsqueeze(dim=0) for i in range(len(traj_gt))]
 
     return output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances
-
 
 if __name__ == "__main__":
     main()

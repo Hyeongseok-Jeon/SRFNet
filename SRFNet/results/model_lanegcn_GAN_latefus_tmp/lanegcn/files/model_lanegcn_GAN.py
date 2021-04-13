@@ -7,12 +7,7 @@ import os
 import sys
 from fractions import gcd
 from numbers import Number
-sys.path.extend(['/home/jhs/Desktop/SRFNet'])
-sys.path.extend(['/home/jhs/Desktop/SRFNet/LaneGCN'])
-sys.path.extend(['/home/user/Desktop/SRFNet'])
-sys.path.extend(['/home/user/Desktop/SRFNet/LaneGCN'])
-sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet'])
-sys.path.extend(['/home/user/data/HyeongseokJeon/infogan_pred/SRFNet/LaneGCN'])
+
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -109,7 +104,7 @@ class lanegcn_vanilla_gan(nn.Module):
         super(lanegcn_vanilla_gan, self).__init__()
         self.config = config
         _, _, _, maneuver_pred_net, _, _, _ = get_manuever_model(args)
-        pre_trained_weight = torch.load(os.path.join(root_path, "../../../../results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
+        pre_trained_weight = torch.load(os.path.join(root_path, "results/model_maneuver_pred/maneuver_pred") + '/32.000.ckpt')
         pretrained_dict = pre_trained_weight['state_dict']
         new_model_dict = maneuver_pred_net.state_dict()
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in new_model_dict}
