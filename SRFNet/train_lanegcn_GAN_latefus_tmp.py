@@ -190,9 +190,6 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
     for i, data in tqdm(enumerate(train_loader), disable=hvd.rank()):
         epoch += epoch_per_batch
         data = dict(data)
-        for key in data.keys():
-            if not(key in ['data', 'init_pred_global', 'init_pred_global_con']):
-                data[key] = [data[key][i][0] for i in range(len(data['city']))]
         output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data, 'enc')
         loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
 
@@ -263,7 +260,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             metrics = dict()
 
         if num_iters % val_iters == 0:
-            val(config, val_loader, net, loss, post_process, epoch)
+            val(config, train_loader, net, loss, post_process, epoch)
 
         if epoch >= config["num_epochs"]:
             val(config, val_loader, net, loss, post_process, epoch)
@@ -276,7 +273,7 @@ def val(config, data_loader, net, loss, post_process, epoch):
     with torch.no_grad():
         for i, data in enumerate(data_loader):
             data = dict(data)
-            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data)
+            output, traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances = get_out(net, data, 'enc')
             loss_out = loss(traj_gt, traj_pred, layer_gt, layer_pred, label_gt, label_pred, label_sample, mus, variances, data, output)
             out_added = output[0]
             post_out = post_process(out_added, data)

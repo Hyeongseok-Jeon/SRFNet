@@ -110,9 +110,9 @@ def main():
     pre_model.load_state_dict(new_model_dict)
     os.makedirs(os.path.join(root_path, 'SRFNet', 'dataset', 'preprocess_GAN'),exist_ok=True)
 
-    # gen('val', pre_model, config)
+    gen('val', pre_model, config)
     # gen('test', pre_model, config)
-    gen('train', pre_model, config)
+    # gen('train', pre_model, config)
 
 def gen(mod, pre_model, config):
     if mod == 'train':

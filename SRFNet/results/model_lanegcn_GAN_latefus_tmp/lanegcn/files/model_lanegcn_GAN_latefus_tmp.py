@@ -122,7 +122,7 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
     def forward(self, data, mod):
         batch_num = len(data['gt_preds'])
-        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(batch_num)]
+        ego_fut_traj = [gpu(data['gt_preds'][i][0][0:1, :, :]) for i in range(batch_num)]
 
         hid =[gpu(data['data'][i][0]) for i in range(batch_num)]
 
@@ -148,7 +148,7 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
             init_pred_global_vae[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
             [_, dis_sample], [_, _] = self.discriminator(data, init_pred_global_vae, batch_num)
             output_pred = init_pred_global
-            target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
+            target_gt_traj = [gpu(data['gt_preds'][i][0][1:2, :, :]) for i in range(len(data['gt_preds']))]
 
         elif mod == 'gen':
             with torch.no_grad():
@@ -184,14 +184,14 @@ class lanegcn_vanilla_gan_latefus(nn.Module):
 
 def feat_to_global(targets, rot, orig, ctrs):
     batch_num = len(targets)
-    targets_mod = [torch.zeros_like(targets[i])[0, :, :2] for i in range(batch_num)]
+    targets_mod = [torch.zeros_like(targets[i][0])[0, :, :2] for i in range(batch_num)]
     for i in range(batch_num):
-        target_cur_pos = ctrs[i][1]
+        target_cur_pos = ctrs[i][0][1]
         targets_mod[i][-1, :] = target_cur_pos
-        target_disp = targets[i][1, :, :2]
+        target_disp = targets[i][0][1, :, :2]
         for j in range(18, -1, -1):
             targets_mod[i][j, :] = targets_mod[i][j + 1, :] - target_disp[j + 1, :]
-        targets_mod[i] = (torch.matmul(torch.inverse(rot[i]), targets_mod[i].T).T + orig[i].reshape(-1, 2))
+        targets_mod[i] = (torch.matmul(torch.inverse(rot[i][0]), targets_mod[i].T).T + orig[i][0].reshape(-1, 2))
 
     return targets_mod
 
@@ -296,7 +296,7 @@ class DiscriminateNet(nn.Module):
 
     def forward(self, data, init_pred_global, batch_num):
         target_hist_traj = feat_to_global(gpu(data['feats']), gpu(data['rot']), gpu(data['orig']), gpu(data['ctrs']))
-        target_gt_traj = [gpu(data['gt_preds'][i][1:2, :, :]) for i in range(len(data['gt_preds']))]
+        target_gt_traj = [gpu(data['gt_preds'][i][0][1:2, :, :]) for i in range(len(data['gt_preds']))]
 
         tot_traj_real = [torch.transpose(torch.cat([target_hist_traj[i], target_gt_traj[i][0]], dim=0).unsqueeze(dim=0), 1, 2) for i in range(batch_num)]
         tot_traj_pred = [torch.transpose(torch.cat([torch.repeat_interleave(target_hist_traj[i].unsqueeze(dim=0), 6, dim=0), init_pred_global[0]['reg'][i][0]], dim=1), 1, 2) for i in range(batch_num)]
