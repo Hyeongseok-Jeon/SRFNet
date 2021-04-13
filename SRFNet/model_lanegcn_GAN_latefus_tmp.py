@@ -351,7 +351,7 @@ class Loss(nn.Module):
         for j in range(batch_size):
             nle = [0.5 * (traj_gt[j].view(-1) - traj_pred[j, i, :, :].view(-1)) ** 2 for i in range(6)]
             kl = [-0.5 * (-variances[j, :, i, :].exp() - torch.pow(mus[j, :, i, :], 2) + variances[j, :, i, :] + 1) for i in range(6)]
-            mae = [torch.abs(layer_gt[j, :] - layer_pred[j + i, :]) for i in range(6)]
+            mae = [torch.abs(layer_gt[j, :] - layer_pred[6 * j + i, :]) for i in range(6)]
 
             nle_tot = nle_tot + nle
             kl_tot = kl_tot + kl
@@ -365,7 +365,7 @@ class Loss(nn.Module):
 
         reconstruction_loss = torch.sum(sum(nle_tot)) / (len(nle_tot) * 60)
         kl_loss = torch.sum(sum(kl_tot)) / (len(kl_tot) * kl_tot[0].shape[0] * kl_tot[0].shape[1])
-        mae_hidden_loss = 10000 * torch.sum(sum(mae_tot)) / (len(mae_tot) * mae_tot[0].shape[0])
+        mae_hidden_loss = torch.sum(sum(mae_tot)) / (len(mae_tot) * mae_tot[0].shape[0])
 
         gt_preds = [gpu(data["gt_preds"])[i][0][1:2, :, :] for i in range(len(gpu(data["gt_preds"])))]
         has_preds = [gpu(data["has_preds"])[i][0][1:2, :] for i in range(len(gpu(data["has_preds"])))]
