@@ -515,7 +515,7 @@ class PostProcess(nn.Module):
 
         loss_encoder = kl_loss + mae_hidden_loss
         loss_discriminator = bce_dis_gt + bce_dis_sample
-        loss_generator = 0.1 * mae_hidden_loss + (1.0 - 0.1) * (bce_gen_pred + bce_gen_sample)
+        loss_generator = 0.5 * mae_hidden_loss + (1.0 - 0.5) * (bce_gen_pred + bce_gen_sample)
 
         preds = np.concatenate(metrics["preds"], 0)
         gt_preds = np.concatenate(metrics["gt_preds"], 0)

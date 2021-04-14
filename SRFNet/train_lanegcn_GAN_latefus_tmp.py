@@ -225,7 +225,7 @@ def train(epoch, config, train_loader, net, loss, post_process, opt, val_loader=
             bce_gen_pred = loss_out['bce_gen_pred']
 
             opt_gen.zero_grad()
-            loss_generator = 0.1 * mae_hidden_loss + (1.0 - 0.1) * (bce_gen_pred + bce_gen_sample)
+            loss_generator = 0.5 * mae_hidden_loss + (1.0 - 0.5) * (bce_gen_pred + bce_gen_sample)
             loss_generator.backward()
             lr_gen = opt_gen.step(epoch)
 
