@@ -67,7 +67,7 @@ def main():
 
 def train(config):
     # Data loader for training set
-    dataset = Dataset(config["train_split"], config, net, train=True)
+    dataset = Dataset(config["train_split"], config, train=True)
     train_loader = DataLoader(
         dataset,
         batch_size=config["batch_size"],
@@ -126,7 +126,7 @@ def train(config):
 
 def val(config):
     # Data loader for validation set
-    dataset = Dataset(config["val_split"], config, net, train=False)
+    dataset = Dataset(config["val_split"], config, train=False)
     val_loader = DataLoader(
         dataset,
         batch_size=config["val_batch_size"],
