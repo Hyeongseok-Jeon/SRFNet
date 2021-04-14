@@ -135,7 +135,7 @@ class ArgoDataset(Dataset):
             cl_list_mod = []
             moving_dist = np.linalg.norm(np.sum(hist_feats[j], axis=0)[:2])
             if moving_dist > 1.5 or j == 1:
-                cl_list, _ = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'], viz=False)
+                cl_list = self.am.get_candidate_centerlines_for_traj(hist_traj_tmp[j], data['city'], viz=False)
                 for k in range(len(cl_list)):
                     init_idx = np.argmin(np.linalg.norm(cl_list[k] - hist_traj_tmp[j][:1, :], axis=1))
                     cl_sparse = sparse_wp(cl_list[k][init_idx:, :])
