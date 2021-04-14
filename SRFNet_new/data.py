@@ -802,3 +802,65 @@ def get_cl_dense(self, cl_tmp):
             cl_mod[4 * i + 3, :] = cl_tmp[i, :] + 3 * (cl_tmp[i + 1, :] - cl_tmp[i, :]) / 4
     cl_mod = cl_mod[:-3, :]
     return torch.repeat_interleave(cl_mod.unsqueeze(dim=0), 6, dim=0)
+
+
+def cl_cands_gather(cl_cands, actors_in_batch, data):
+    cl_mask = np.zeros(shape=(50, 4))
+    cl_tot = []
+
+    veh_in_batch = len(cl_cands)
+    veh_feats = disp_to_global(actors_in_batch, data)
+    feats = data['feats']
+    future_traj = data['gt_preds']
+    cl_in_batch = []
+    gt_in_batch = []
+    for j in range(veh_in_batch):
+        num_path_cands_of_veh = len(cl_cands[j])
+        cl_veh = []
+        cl_global = []
+        traj = veh_feats[j]
+        valid_num = np.sum(feats[j][:, 2], dtype=int)
+        fut_traj = future_traj[j, :, :]
+        traj_valid = traj[:valid_num, :]
+        if num_path_cands_of_veh > 0:
+            for k in range(num_path_cands_of_veh):
+                cl_mask_tmp = cl_mask.copy()
+                cl_rots = np.matmul(data['rot'], (cl_cands[j][k] - data['orig'].reshape(-1, 2)).T).T + data['orig'].reshape(-1, 2)
+                cl_mods = cl_rots[1:] - cl_rots[:-1]
+                cl_mask_tmp[1:cl_rots.shape[0], 0] = cl_mods[:min(cl_rots.shape[0] - 1, 49), 0]
+                cl_mask_tmp[1:cl_rots.shape[0], 1] = cl_mods[:min(cl_rots.shape[0] - 1, 49), 1]
+                idxs = [-1, -1]
+                for l in range(min(cl_rots.shape[0], 50)):
+                    idxs[0] = idxs[1]
+                    idxs[1] = np.argmin(np.linalg.norm(traj_valid - cl_rots[l, :], axis=1))
+                    if idxs[0] == idxs[1] and idxs[0] == valid_num - 1:
+                        cl_mask_tmp[l, 3] = 0
+                        cl_mask_tmp[l, 2] = 0
+                    else:
+                        cl_mask_tmp[l, 3] = 1
+                        cl_mask_tmp[l, 2] = np.min(np.linalg.norm(traj_valid - cl_rots[l, :], axis=1))
+                cl_mask_tmp = np.expand_dims(cl_mask_tmp, axis=0)
+                if k == 0:
+                    cl_global.append(cl_cands[j][k])
+                    cl_veh.append(cl_mask_tmp)
+                else:
+                    val_check = [cl_mask_tmp == cl_veh[i] for i in range(len(cl_veh))]
+                    tot_check = [val_check[i].all() for i in range(len(val_check))]
+                    if np.asarray(tot_check).any():
+                        pass
+                    else:
+                        cl_global.append(cl_cands[j][k])
+                        cl_veh.append(cl_mask_tmp)
+            gt_mask = np.zeros(len(cl_global))
+            dist_to_cl_fut = []
+            for k in range(len(cl_global)):
+                cl_cand = cl_global[k]
+                dist_to_cl_fut.append(np.mean([np.min(np.linalg.norm(cl_cand - fut_traj[i], axis=1)) for i in range(30)]))
+            gt_mask[np.argmin(dist_to_cl_fut)] = 1
+        else:
+            gt_mask = np.zeros(1)
+            cl_veh = [np.expand_dims(cl_mask.copy(), axis=0)]
+        cl_in_batch.append(np.concatenate(cl_veh, axis=0))
+        gt_in_batch.append(gt_mask)
+
+    return cl_in_batch, gt_in_batch
