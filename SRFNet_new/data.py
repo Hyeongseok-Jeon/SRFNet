@@ -14,10 +14,9 @@ from skimage.transform import rotate
 
 
 class ArgoDataset(Dataset):
-    def __init__(self, split, config, net, train=True):
+    def __init__(self, split, config, train=True):
         self.config = config
         self.train = train
-        self.net = net
         if 'preprocess' in config and config['preprocess']:
             if train:
                 self.split = np.load(self.config['preprocess_train'], allow_pickle=True)

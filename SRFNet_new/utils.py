@@ -73,7 +73,6 @@ def gpu(data):
     return data
 
 
-
 def to_long(data):
     if isinstance(data, dict):
         for key in data.keys():

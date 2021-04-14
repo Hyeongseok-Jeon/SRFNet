@@ -290,7 +290,7 @@ def modify(config, data_loader, save):
             print((i + 1) * config['batch_size'], time.time() - t)
             t = time.time()
 
-    f = open(os.path.join(root_path, 'preprocess', save), 'wb')
+    f = open(os.path.join(root_path, 'preprocess_GAN', save), 'wb')
     pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)
     f.close()
 
