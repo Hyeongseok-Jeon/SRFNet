@@ -1,11 +1,11 @@
 import torch.nn as nn
-import SRFNet_new.model_ego_wrapper_supervised as model
-from SRFNet_new.model_ego_wrapper_supervised import Loss, PostProcess
-from SRFNet_new.get_config import get_config
+import model_ego_wrapper_supervised as model
+from model_ego_wrapper_supervised import Loss, PostProcess
+from get_config import get_config
 import argparse
-from SRFNet_new.data import ArgoDataset, collate_fn
+from data import ArgoDataset, collate_fn
 from torch.utils.data import DataLoader
-from SRFNet_new.baselines.LaneGCN import lanegcn
+from baselines.LaneGCN import lanegcn
 import torch
 import os
 import time
