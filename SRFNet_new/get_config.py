@@ -5,7 +5,6 @@ def get_config():
     file_path = os.path.abspath(__file__)
     root_path = os.path.dirname(file_path)
     model_name = os.path.basename(file_path).split(".")[0]
-
     ### config ###
     config = dict()
     """Train"""

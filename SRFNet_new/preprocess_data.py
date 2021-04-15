@@ -20,6 +20,7 @@ from torch.utils.data import DataLoader
 from LaneGCN_original.LaneGCN.lanegcn import get_model
 import warnings
 from SRFNet_new.utils import Logger, load_pretrain, gpu
+from SRFNet_new.get_config import get_config
 warnings.filterwarnings("ignore")
 
 os.umask(0)
@@ -39,7 +40,7 @@ parser.add_argument(
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 
-config, _, _, net, _, _, _ = get_model()
+_, _, _, net, _, _, _ = get_model()
 pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
 pretrained_dict = pre_trained_weight['state_dict']
 new_model_dict = net.state_dict()
@@ -50,9 +51,9 @@ os.makedirs(os.path.join(root_path, 'SRFNet_new', 'dataset', 'preprocess_GAN'), 
 from SRFNet_new.data import ArgoDataset as Dataset, from_numpy, ref_copy, collate_fn
 
 
-
 def main():
     # Import all settings for experiment.
+    config = get_config()
     config["preprocess"] = False  # we use raw data to generate preprocess data
     config["batch_size"] = 12
     config["workers"] = 0
@@ -63,6 +64,7 @@ def main():
     val(config)
     # test(config)
     train(config)
+
 
 
 def train(config):
