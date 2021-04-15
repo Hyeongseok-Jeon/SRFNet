@@ -69,7 +69,7 @@ class ArgoDataset(Dataset):
                 for key in ['city', 'orig', 'gt_preds', 'has_preds',
                             'theta', 'rot', 'feats', 'ego_feats',
                             'ctrs', 'graph', 'file_name', 'cl_cands',
-                            'cl_cands_mod', 'gt_cl_cands', 'data',
+                            'cl_cands_mod', 'gt_cl_cands', 'action_input',
                             'init_pred_global','init_pred_global_con','idx']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
@@ -635,6 +635,10 @@ def collate_fn(batch):
     # Batching by use a list for non-fixed size
     for key in batch[0].keys():
         return_batch[key] = [x[key] for x in batch]
+
+    for keys in return_batch.keys():
+        return_batch[keys] = [return_batch[keys][i][0] for i in range(len(return_batch[keys]))]
+
 
     return return_batch
 

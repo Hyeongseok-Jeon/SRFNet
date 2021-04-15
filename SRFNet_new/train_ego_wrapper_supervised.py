@@ -8,6 +8,21 @@ from SRFNet_new.baselines.LaneGCN import lanegcn
 import torch
 import os
 
+def save_ckpt(net, opt, save_dir, epoch):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    state_dict = net.state_dict()
+    for key in state_dict.keys():
+        state_dict[key] = state_dict[key].cpu()
+
+    save_name = "%3.3f.ckpt" % epoch
+    torch.save(
+        {"epoch": epoch, "state_dict": state_dict, "opt_state": opt.opt.state_dict()},
+        os.path.join(save_dir, save_name),
+    )
+
+
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
     "--base_line", default="LaneGCN", type=str, metavar="MODEL", help="model name"
@@ -20,7 +35,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="vanilla_gan", type=str
+    "--case", default="supervised wrapper", type=str
 )
 parser.add_argument(
     "--gpu_id", default=0, type=int
@@ -28,9 +43,9 @@ parser.add_argument(
 parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
-config = get_config()
+config = get_config(args)
 
-base_net, weight = lanegcn.get_model(config)
+base_net, weight, opt = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
 pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
 pretrained_dict = pre_trained_weight['state_dict']
@@ -40,7 +55,7 @@ net = model.model(config, args, base_net)
 model = nn.DataParallel(net)
 model.cuda()
 
-dataset = ArgoDataset(config["train_split"], config, train=True)
+dataset = ArgoDataset(config["train_split"], config, train=False)
 train_loader = DataLoader(
     dataset,
     batch_size=config["batch_size"],
@@ -61,11 +76,24 @@ val_loader = DataLoader(
     collate_fn=collate_fn,
     pin_memory=True,
 )
+l1loss = nn.SmoothL1Loss()
+metrics = dict()
+for epoch in range(config["num_epochs"]):
+    for i, data in enumerate(train_loader):
+        print(i)
+        target = data
+        with torch.no_grad():
+            actors = base_net(data)
+        outputs = model(data, actors)
+        pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
+        gt = torch.cat([torch.repeat_interleave(data['gt_preds'][i][1:2,:,:], 6, dim=0) for i in range(len(data['gt_preds']))], dim=0)
+        loss = l1loss(pred, gt)
 
-for i, (inputs, labels) in enumerate(train_loader):
-    outputs = model(inputs)
-    loss = criterion(outputs, labels)
+        opt.zero_grad()
+        loss.backward()
+        opt.step(epoch)
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+
+    save_ckpt(net, opt, config['save_dir'], epoch)
+
+

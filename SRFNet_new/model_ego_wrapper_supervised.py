@@ -17,27 +17,27 @@ class model(nn.Module):
         self.args = args
 
         self.base_net = base_net
-        self.ego_react_encoder = EgoReactEncodeNet(config)
-        self.generator = GenerateNet(config)
+        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
+        self.generator = GenerateNet(config).cuda()
 
-    def forward(self, data):
+    def forward(self, data, actors):
         batch_num = len(data['gt_preds'])
-        ego_fut_traj = [gpu(data['gt_preds'][i][0][0:1, :, :]) for i in range(batch_num)]
+        ego_fut_traj = [gpu(data['gt_preds'][i][0:1, :, :]) for i in range(batch_num)]
 
-        hid = [gpu(data['action_input'][i][0]) for i in range(batch_num)]
+        hid = [gpu(data['action_input'][i]) for i in range(batch_num)]
 
-        init_pred_global_raw = [gpu(data['init_pred_global'][i][0]) for i in range(batch_num)]
+        init_pred_global_raw = [gpu(data['init_pred_global'][i]) for i in range(batch_num)]
         init_pred = dict()
         init_pred['cls'] = []
         init_pred['reg'] = []
         for i in range(len(hid)):
-            init_pred['cls'].append(init_pred_global_raw[i][0]['cls'][0])
-            init_pred['reg'].append(init_pred_global_raw[i][0]['reg'][0])
+            init_pred['cls'].append(init_pred_global_raw[i]['cls'][0])
+            init_pred['reg'].append(init_pred_global_raw[i]['reg'][0])
         init_pred_global = [init_pred]
 
         mus_enc, _ = self.ego_react_encoder(ego_fut_traj, hid)
-        delta = self.generator(mus_enc, batch_num)
-        init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i] + delta[i] for i in range(batch_num)]
+        delta = self.generator(mus_enc, actors, batch_num)
+        init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1,:,:,:] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
 
         return output_pred
@@ -81,9 +81,14 @@ class GenerateNet(nn.Module):
         self.x_gen = nn.Linear(2 * config['n_actor'], 1)
         self.y_gen = nn.Linear(2 * config['n_actor'], 1)
 
-    def forward(self, mus_enc, batch_num):
+    def forward(self, mus_enc, actors, batch_num):
+        actor = actors[0]
+        actor_idcs = actors[1]
 
-        out = self.lstm(mus_enc)[0]
+        mus_in = torch.cat(mus_enc, dim=1)
+        actor_target = torch.cat([torch.repeat_interleave(actor[actor_idcs[i][1]:actor_idcs[i][1]+1], 6, dim=0) for i in range(len(actor_idcs))], dim=0)
+        actor_in = torch.repeat_interleave(actor_target.unsqueeze(dim=0), 4, dim=0)
+        out = self.lstm(mus_in,(torch.zeros_like(actor_in), actor_in))[0]
         x_out = self.x_gen(out)
         y_out = self.y_gen(out)
         delta = torch.cat([x_out, y_out], dim=-1)

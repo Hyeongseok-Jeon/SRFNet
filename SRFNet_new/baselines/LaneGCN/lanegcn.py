@@ -71,14 +71,14 @@ class Net(nn.Module):
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
 
         # prediction
-        out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"]), gpu(data["orig"])
-        # transform prediction to world coordinates
-        for i in range(len(out["reg"])):
-            out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
-                1, 1, 1, -1
-            )
-        return out, actors
+        # out = self.pred_net(actors, actor_idcs, actor_ctrs)
+        # rot, orig = gpu(data["rot"]), gpu(data["orig"])
+        # # transform prediction to world coordinates
+        # for i in range(len(out["reg"])):
+        #     out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
+        #         1, 1, 1, -1
+        #     )
+        return [actors, actor_idcs, actor_ctrs]
 
 
 
@@ -833,4 +833,5 @@ def get_model(config):
     net = Net(config)
     net = net.cuda()
     weight_dir = 'LaneGCN/pre_trained/36.000.ckpt'
-    return net, weight_dir
+    opt = Optimizer(net.parameters(), config)
+    return net, weight_dir, opt

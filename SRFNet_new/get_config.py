@@ -1,10 +1,10 @@
 import os
 from SRFNet_new.utils import gpu, to_long, Optimizer, StepLR, to_float
 
-def get_config():
+def get_config(args):
     file_path = os.path.abspath(__file__)
     root_path = os.path.dirname(file_path)
-    model_name = os.path.basename(file_path).split(".")[0]
+    model_name = args.case
     ### config ###
     config = dict()
     """Train"""
@@ -27,8 +27,8 @@ def get_config():
     if not os.path.isabs(config["save_dir"]):
         config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-    config["batch_size"] = 32
-    config["val_batch_size"] = 32
+    config["batch_size"] = 4
+    config["val_batch_size"] = 4
     config["workers"] = 0
     config["val_workers"] = config["workers"]
 
