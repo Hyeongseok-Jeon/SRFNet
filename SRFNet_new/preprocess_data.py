@@ -260,7 +260,6 @@ def modify(config, data_loader, save):
     t = time.time()
     store = data_loader.dataset.split
     for i, data in enumerate(data_loader):
-        print(i)
         data = [dict(x) for x in data]
 
         out = []

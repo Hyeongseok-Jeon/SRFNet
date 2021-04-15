@@ -4,10 +4,13 @@ from SRFNet_new.get_config import get_config
 import argparse
 from SRFNet_new.data import ArgoDataset, collate_fn
 from torch.utils.data import DataLoader
+from SRFNet_new.baselines.LaneGCN import lanegcn
+import torch
+import os
 
 parser = argparse.ArgumentParser(description="Fuse Detection in Pytorch")
 parser.add_argument(
-    "-m", "--model", default="model_lanegcn_GAN_latefus_tmp", type=str, metavar="MODEL", help="model name"
+    "--base_line", default="LaneGCN", type=str, metavar="MODEL", help="model name"
 )
 parser.add_argument("--eval", action="store_true")
 parser.add_argument(
@@ -26,7 +29,14 @@ parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 config = get_config()
-net = model.model(config, args)
+
+base_net, weight = lanegcn.get_model(config)
+root_path = os.path.join(os.path.abspath(os.curdir))
+pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
+pretrained_dict = pre_trained_weight['state_dict']
+base_net.load_state_dict(pretrained_dict)
+
+net = model.model(config, args, base_net)
 model = nn.DataParallel(net)
 model.cuda()
 
@@ -51,7 +61,6 @@ val_loader = DataLoader(
     collate_fn=collate_fn,
     pin_memory=True,
 )
-
 
 for i, (inputs, labels) in enumerate(train_loader):
     outputs = model(inputs)
