@@ -81,6 +81,7 @@ val_loader = DataLoader(
 l1loss = nn.SmoothL1Loss()
 loss_logging = Loss(config)
 post_process = PostProcess(config)
+os.makedirs(config['save_dir'])
 
 for epoch in range(config["num_epochs"]):
     metrics = dict()
@@ -102,7 +103,6 @@ for epoch in range(config["num_epochs"]):
         post_process.append(metrics, loss_out, post_out)
 
     save_ckpt(net, opt, config['save_dir'], epoch)
-
     start_time = time.time()
     dt = time.time() - start_time
     post_process.display(metrics, dt, epoch, 0.001)
