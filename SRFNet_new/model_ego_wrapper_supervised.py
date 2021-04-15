@@ -37,7 +37,8 @@ class model(nn.Module):
 
         mus_enc, _ = self.ego_react_encoder(ego_fut_traj, hid)
         delta = self.generator(mus_enc, actors, batch_num)
-        init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1,:,:,:] + delta[i] for i in range(batch_num)]
+        init_pred_global[0]['cls'] = [init_pred_global[0]['cls'][i][1:2, :] for i in range(batch_num)]
+        init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1, :, :, :] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
 
         return output_pred
@@ -86,9 +87,9 @@ class GenerateNet(nn.Module):
         actor_idcs = actors[1]
 
         mus_in = torch.cat(mus_enc, dim=1)
-        actor_target = torch.cat([torch.repeat_interleave(actor[actor_idcs[i][1]:actor_idcs[i][1]+1], 6, dim=0) for i in range(len(actor_idcs))], dim=0)
+        actor_target = torch.cat([torch.repeat_interleave(actor[actor_idcs[i][1]:actor_idcs[i][1] + 1], 6, dim=0) for i in range(len(actor_idcs))], dim=0)
         actor_in = torch.repeat_interleave(actor_target.unsqueeze(dim=0), 4, dim=0)
-        out = self.lstm(mus_in,(torch.zeros_like(actor_in), actor_in))[0]
+        out = self.lstm(mus_in, (torch.zeros_like(actor_in), actor_in))[0]
         x_out = self.x_gen(out)
         y_out = self.y_gen(out)
         delta = torch.cat([x_out, y_out], dim=-1)
@@ -171,13 +172,79 @@ class Loss(nn.Module):
     def __init__(self, config):
         super(Loss, self).__init__()
         self.config = config
-        self.pred_loss = PredLoss(config)
+        self.pred_loss = nn.L1Loss(reduction='none')
+        self.lanegcn_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
+        gt = gpu([data["gt_preds"][i][1:2, :, :] for i in range(len(data["gt_preds"]))])
+        has = gpu([data["has_preds"][i][1:2, :] for i in range(len(data["has_preds"]))])
+        preds = [out['reg'][i][0] for i in range(len(data['gt_preds']))]
+        preds_cls = [out['cls'][i][0] for i in range(len(data['gt_preds']))]
+
+        loss_out = self.lanegcn_loss(out, gt, has)
         loss_out["loss"] = loss_out["cls_loss"] / (
-            loss_out["num_cls"] + 1e-10
+                loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
+
+        heading = []
+        for i in range(len(gt)):
+            head = torch.zeros_like(gt[0][:, :, 0])
+            if torch.norm(gt[i][0, 0, :] - gt[i][0, -1, :]) > 2:
+                head[0, 0] = torch.rad2deg(torch.atan2(gt[i][0, 1, 1] - gt[i][0, 0, 1], gt[i][0, 1, 0] - gt[i][0, 0, 0]))
+                head[0, -1] = torch.rad2deg(torch.atan2(gt[i][0, -1, 1] - gt[i][0, -2, 1], gt[i][0, -1, 0] - gt[i][0, -2, 0]))
+                zero_idx = torch.cat(
+                    torch.where((torch.atan2(gt[i][0, 2:, 1] - gt[i][0, 1:-1, 1], gt[i][0, 2:, 0] - gt[i][0, 1:-1, 0])) == 0) + torch.where((torch.atan2(gt[i][0, 1:-1, 1] - gt[i][0, :-2, 1], gt[i][0, 1:-1, 0] - gt[i][0, 0:-2, 0])) == 0))
+                head_tmp = torch.rad2deg(torch.atan2(gt[i][0, 2:, 1] - gt[i][0, 1:-1, 1], gt[i][0, 2:, 0] - gt[i][0, 1:-1, 0])) + torch.rad2deg(torch.atan2(gt[i][0, 1:-1, 1] - gt[i][0, :-2, 1], gt[i][0, 1:-1, 0] - gt[i][0, 0:-2, 0]))
+                head[0, 1:-1] = head_tmp / 2
+                head[0, zero_idx + 1] = head_tmp[zero_idx]
+            heading.append(head)
+
+        dist_error = []
+        top_1_idx = []
+        for i in range(len(gt)):
+            gt_for_loss = torch.repeat_interleave(gt[i], 6, dim=0)
+            pred_for_loss = preds[i]
+            dist_error_init = self.pred_loss(gt_for_loss, pred_for_loss)
+
+            for ii in range(30):
+                rot = torch.zeros((2, 2), device="cuda")
+                rot[0,0] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
+                rot[0,1] = -torch.sin(torch.deg2rad(-heading[i][0, ii]))
+                rot[1,0] = torch.sin(torch.deg2rad(-heading[i][0, ii]))
+                rot[1,1] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
+                dist_error_init[:,ii,:] = torch.matmul(rot, dist_error_init[:,ii,:].T).T
+
+            dist_error.append(torch.abs(dist_error_init))
+            top_1_idx.append(torch.argmax(preds_cls[i]) + 6 * i)
+
+        dist_error = torch.cat(dist_error, dim=0)
+        ade6_x_sum = torch.sum(dist_error[:, :, 0])
+        ade6_y_sum = torch.sum(dist_error[:, :, 1])
+        fde6_x_sum = torch.sum(dist_error[:, -1, 0])
+        fde6_y_sum = torch.sum(dist_error[:, -1, 1])
+        ade6_num = dist_error.shape[0] * dist_error.shape[1]
+        fde6_num = dist_error.shape[0]
+
+        ade1_x_sum = torch.sum(dist_error[top_1_idx, :, 0])
+        ade1_y_sum = torch.sum(dist_error[top_1_idx, :, 1])
+        fde1_x_sum = torch.sum(dist_error[top_1_idx, -1, 0])
+        fde1_y_sum = torch.sum(dist_error[top_1_idx, -1, 1])
+        ade1_num = len(top_1_idx) * dist_error.shape[1]
+        fde1_num = len(top_1_idx)
+
+        loss_out["ade6_x_sum"] = ade6_x_sum
+        loss_out["ade6_y_sum"] = ade6_y_sum
+        loss_out["fde6_x_sum"] = fde6_x_sum
+        loss_out["fde6_y_sum"] = fde6_y_sum
+        loss_out["ade6_num"] = ade6_num
+        loss_out["fde6_num"] = fde6_num
+        loss_out["ade1_x_sum"] = ade1_x_sum
+        loss_out["ade1_y_sum"] = ade1_y_sum
+        loss_out["fde1_x_sum"] = fde1_x_sum
+        loss_out["fde1_y_sum"] = fde1_y_sum
+        loss_out["ade1_num"] = ade1_num
+        loss_out["fde1_num"] = fde1_num
+
         return loss_out
 
 
@@ -186,14 +253,14 @@ class PostProcess(nn.Module):
         super(PostProcess, self).__init__()
         self.config = config
 
-    def forward(self, out,data):
+    def forward(self, out, data):
         post_out = dict()
-        post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
-        post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
-        post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
+        post_out["preds"] = [x.detach().cpu().numpy() for x in out["reg"]]
+        post_out["gt_preds"] = [x[1:2].numpy() for x in data["gt_preds"]]
+        post_out["has_preds"] = [x[1:2].numpy() for x in data["has_preds"]]
         return post_out
 
-    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
         if len(metrics.keys()) == 0:
             for key in loss_out:
                 if key != "loss":
@@ -224,6 +291,15 @@ class PostProcess(nn.Module):
                 % dt
             )
 
+        ade1_x = metrics["ade1_x_sum"] / metrics["ade1_num"]
+        ade1_y = metrics["ade1_y_sum"] / metrics["ade1_num"]
+        ade6_x = metrics["ade6_x_sum"] / metrics["ade6_num"]
+        ade6_y = metrics["ade6_y_sum"] / metrics["ade6_num"]
+        fde1_x = metrics["fde1_x_sum"] / metrics["fde1_num"]
+        fde1_y = metrics["fde1_y_sum"] / metrics["fde1_num"]
+        fde6_x = metrics["fde6_x_sum"] / metrics["fde6_num"]
+        fde6_y = metrics["fde6_y_sum"] / metrics["fde6_num"]
+
         cls = metrics["cls_loss"] / (metrics["num_cls"] + 1e-10)
         reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
         loss = cls + reg
@@ -231,11 +307,11 @@ class PostProcess(nn.Module):
         preds = np.concatenate(metrics["preds"], 0)
         gt_preds = np.concatenate(metrics["gt_preds"], 0)
         has_preds = np.concatenate(metrics["has_preds"], 0)
-        ade1, fde1, ade, fde, min_idcs = pred_metrics(preds, gt_preds, has_preds)
+        ade1, fde1, ade6, fde6, min_idcs = pred_metrics(preds, gt_preds, has_preds)
 
         print(
-            "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
-            % (loss, cls, reg, ade1, fde1, ade, fde)
+            "loss %2.4f %2.4f %2.4f, ade1 %2.4f, ade1_x %2.4f, ade1_y %2.4f, fde1 %2.4f, fde1_x %2.4f, fde1_y %2.4f, ade6 %2.4f, ade6_x %2.4f, ade6_y %2.4f, fde6 %2.4f, fde6_x %2.4f, fde6_y %2.4f"
+            % (loss, cls, reg, ade1, ade1_x, ade1_y, fde1, fde1_x, fde1_y, ade6, ade6_x, ade6_y, fde6, fde6_x, fde6_y)
         )
         print()
 

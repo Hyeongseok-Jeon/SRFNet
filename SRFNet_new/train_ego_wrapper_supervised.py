@@ -1,5 +1,6 @@
 import torch.nn as nn
 import SRFNet_new.model_ego_wrapper_supervised as model
+from SRFNet_new.model_ego_wrapper_supervised import Loss, PostProcess
 from SRFNet_new.get_config import get_config
 import argparse
 from SRFNet_new.data import ArgoDataset, collate_fn
@@ -7,6 +8,7 @@ from torch.utils.data import DataLoader
 from SRFNet_new.baselines.LaneGCN import lanegcn
 import torch
 import os
+import time
 
 def save_ckpt(net, opt, save_dir, epoch):
     if not os.path.exists(save_dir):
@@ -77,11 +79,13 @@ val_loader = DataLoader(
     pin_memory=True,
 )
 l1loss = nn.SmoothL1Loss()
-metrics = dict()
+loss_logging = Loss(config)
+post_process = PostProcess(config)
+
 for epoch in range(config["num_epochs"]):
+    metrics = dict()
     for i, data in enumerate(train_loader):
         print(i)
-        target = data
         with torch.no_grad():
             actors = base_net(data)
         outputs = model(data, actors)
@@ -93,7 +97,14 @@ for epoch in range(config["num_epochs"]):
         loss.backward()
         opt.step(epoch)
 
+        loss_out = loss_logging(outputs[0], data)
+        post_out = post_process(outputs[0], data)
+        post_process.append(metrics, loss_out, post_out)
 
     save_ckpt(net, opt, config['save_dir'], epoch)
 
+    start_time = time.time()
+    dt = time.time() - start_time
+    post_process.display(metrics, dt, epoch, 0.001)
+    start_time = time.time()
 
