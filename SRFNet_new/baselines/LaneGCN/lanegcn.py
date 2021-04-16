@@ -55,13 +55,24 @@ class Net(nn.Module):
         self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+        mask = data[0]
+        batch_num = mask.shape[1]
+        vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
+        vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32), vehicle_per_batch))
+        idx = []
+        for i in range(batch_num + 1):
+            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
+
+        feats = [mask[5, 0, idx[i]: idx[i+1], :20, :3, 0] for i in range(batch_num)]
+        ctrs = [mask[7, 0, idx[i]: idx[i+1], :2, 0, 0]  for i in range(batch_num)]
+
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(data["feats"]))
-        actor_ctrs = gpu(data["ctrs"])
+        actors, actor_idcs = actor_gather(gpu(feats))
+        actor_ctrs = gpu(ctrs)
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"])))
+        graph = graph_gather(to_long(gpu(data[2])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # actor-map fusion cycle 
@@ -69,7 +80,7 @@ class Net(nn.Module):
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
-
+        del nodes, node_idcs, node_ctrs, graph, ctrs, feats, idx, vehicle_per_batch, batch_num, mask
         # prediction
         # out = self.pred_net(actors, actor_idcs, actor_ctrs)
         # rot, orig = gpu(data["rot"]), gpu(data["orig"])
@@ -831,7 +842,6 @@ def pred_metrics(preds, gt_preds, has_preds):
 
 def get_model(config):
     net = Net(config)
-    net = net.cuda()
     weight_dir = 'LaneGCN/pre_trained/36.000.ckpt'
     opt = Optimizer(net.parameters(), config)
     return net, weight_dir, opt

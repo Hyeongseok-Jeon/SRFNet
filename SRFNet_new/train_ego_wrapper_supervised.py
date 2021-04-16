@@ -9,10 +9,15 @@ from baselines.LaneGCN import lanegcn
 import torch
 import os
 import time
+from tqdm import tqdm
+import sys
+from utils import Logger, load_pretrain
+import shutil
+
 
 def save_ckpt(net, opt, save_dir, epoch):
     if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+        os.makedirs(save_dir, exist_ok=True)
 
     state_dict = net.state_dict()
     for key in state_dict.keys():
@@ -57,6 +62,7 @@ net = model.model(config, args, base_net)
 model = nn.DataParallel(net)
 model.cuda()
 
+
 dataset = ArgoDataset(config["train_split"], config, train=False)
 train_loader = DataLoader(
     dataset,
@@ -64,7 +70,6 @@ train_loader = DataLoader(
     shuffle=True,
     num_workers=config["workers"],
     collate_fn=collate_fn,
-    pin_memory=True,
     drop_last=True,
 )
 
@@ -76,22 +81,45 @@ val_loader = DataLoader(
     num_workers=config["val_workers"],
     shuffle=True,
     collate_fn=collate_fn,
-    pin_memory=True,
 )
 l1loss = nn.SmoothL1Loss()
 loss_logging = Loss(config)
 post_process = PostProcess(config)
-os.makedirs(config['save_dir'])
+os.makedirs(config['save_dir'], exist_ok=True)
 
+log = os.path.join(config['save_dir'], "log")
+
+if not os.path.exists(config['save_dir']):
+    os.makedirs(config['save_dir'])
+sys.stdout = Logger(log)
+
+src_dirs = [root_path]
+dst_dirs = [os.path.join(config['save_dir'], "files")]
+for src_dir, dst_dir in zip(src_dirs, dst_dirs):
+    files = [f for f in os.listdir(src_dir) if f.endswith(".py")]
+    if not os.path.exists(dst_dir):
+        os.makedirs(dst_dir)
+    for f in files:
+        shutil.copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+
+start_time = time.time()
 for epoch in range(config["num_epochs"]):
     metrics = dict()
-    for i, data in enumerate(train_loader):
-        print(i)
+    for i, data in tqdm(enumerate(train_loader)):
         with torch.no_grad():
             actors = base_net(data)
-        outputs = model(data, actors)
+        outputs = model(data[0], data[1], actors)
+
+        batch_num = data[0].shape[1]
+        vehicle_per_batch = data[0][11, :, 0, 0, 0, 0]
+        vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
+        idx = []
+        for i in range(batch_num + 1):
+            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
+        gt_preds = [data[0][1, 0, idx[i]: idx[i + 1], :30, :2, 0] for i in range(batch_num)]
+
         pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
-        gt = torch.cat([torch.repeat_interleave(data['gt_preds'][i][1:2,:,:], 6, dim=0) for i in range(len(data['gt_preds']))], dim=0)
+        gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2,:,:], 6, dim=0) for i in range(len(gt_preds))], dim=0)
         loss = l1loss(pred, gt)
 
         opt.zero_grad()
@@ -103,8 +131,7 @@ for epoch in range(config["num_epochs"]):
         post_process.append(metrics, loss_out, post_out)
 
     save_ckpt(net, opt, config['save_dir'], epoch)
-    start_time = time.time()
     dt = time.time() - start_time
     post_process.display(metrics, dt, epoch, 0.001)
     start_time = time.time()
-
+    metrics = dict()

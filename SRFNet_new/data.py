@@ -70,7 +70,7 @@ class ArgoDataset(Dataset):
                             'theta', 'rot', 'feats', 'ego_feats',
                             'ctrs', 'graph', 'file_name', 'cl_cands',
                             'cl_cands_mod', 'gt_cl_cands', 'action_input',
-                            'init_pred_global','init_pred_global_con','idx']:
+                            'init_pred_global', 'init_pred_global_con', 'idx']:
                     if key in data:
                         new_data[key] = ref_copy(data[key])
                 data = get_ctrs_idx(new_data)
@@ -118,7 +118,6 @@ class ArgoDataset(Dataset):
         else:
             return len(self.avl)
 
-
     def get_cl_cands(self, data):
         cl_cands = []
         hist_feats = data['feats']
@@ -141,7 +140,6 @@ class ArgoDataset(Dataset):
                     cl_list_mod.append(cl_sparse)
             cl_cands.append(cl_list_mod)
         return cl_cands
-
 
     def read_argo_data(self, idx):
         city = copy.deepcopy(self.avl[idx].city)
@@ -178,7 +176,7 @@ class ArgoDataset(Dataset):
         file_name = self.avl[idx].current_seq
         if av_idx < agt_idx:
             del keys[av_idx]
-            del keys[agt_idx-1]
+            del keys[agt_idx - 1]
         else:
             del keys[agt_idx]
             del keys[av_idx - 1]
@@ -420,7 +418,6 @@ class ArgoDataset(Dataset):
         return graph
 
 
-
 def get_ctrs_idx(data):
     ctrs_list = data['graph']['ctrs']
     nearest_ctrs_hist = np.zeros_like(data['feats'])[:, :, 0]
@@ -639,8 +636,37 @@ def collate_fn(batch):
     for keys in return_batch.keys():
         return_batch[keys] = [return_batch[keys][i][0] for i in range(len(return_batch[keys]))]
 
+    orig_tot = torch.cat([return_batch['orig'][i].unsqueeze(dim=0) for i in range(len(return_batch['orig']))])  # (batch num, 2)
+    gt_preds_tot = torch.cat(return_batch['gt_preds'])  # (vehicle num, 30, 2)
+    has_preds_tot = torch.cat(return_batch['has_preds'])  # (vehicle num, 30)
+    theta_tot = torch.cat([torch.from_numpy(np.asarray([[return_batch['theta'][i]]])) for i in range(len(return_batch['theta']))])  # (batch num, 1)
+    rot_tot = torch.cat([return_batch['rot'][i].unsqueeze(dim=0) for i in range(len(return_batch['rot']))])  # (batch num, 2, 2)
+    feats_tot = torch.cat(return_batch['feats'])  # (vehicle num, 20, 3)
+    ego_feats_tot = torch.cat([return_batch['ego_feats'][i].unsqueeze(dim=0) for i in range(len(return_batch['ego_feats']))])  # (batch num, 50, 3)
+    ctrs_tot = torch.cat(return_batch['ctrs'])  # (vehicle num, 2)
+    action_input_tot = torch.cat([return_batch['action_input'][i].unsqueeze(dim=0) for i in range(len(return_batch['action_input']))])  # (batch num, 6, 30, 204)
+    init_pred_global_reg_tot = torch.cat([return_batch['init_pred_global'][i]['reg'][0] for i in range(len(return_batch['init_pred_global']))], dim=0)  # (vehicle num, 6, 30, 2)
+    init_pred_global_cls_tot = torch.cat([return_batch['init_pred_global'][i]['cls'][0] for i in range(len(return_batch['init_pred_global']))], dim=0)  # (vehicle num, 6)
+    vehicle_per_batch = torch.cat([torch.tensor(return_batch['gt_preds'][i].shape[0]).unsqueeze(dim=0) for i in range(len(return_batch['gt_preds']))], dim=0)
+    batch_num = orig_tot.shape[0]
+    vehicle_num = gt_preds_tot.shape[0]
+    data_num = 12
 
-    return return_batch
+    mask = torch.zeros(size=(data_num, batch_num, vehicle_num, 50, 30, 2))
+    mask[0, :, 0, :2, 0, 0] = orig_tot
+    mask[1, 0, :, :30, :2, 0] = gt_preds_tot
+    mask[2, 0, :, :30, 0, 0] = has_preds_tot
+    mask[3, :, 0, :1, 0, 0] = theta_tot
+    mask[4, :, 0, :2, :2, 0] = rot_tot
+    mask[5, 0, :, :20, :3, 0] = feats_tot
+    mask[6, :, 0, :50, :3, 0] = ego_feats_tot
+    mask[7, 0, :, :2, 0, 0] = ctrs_tot
+    mask[9, 0, :, :6, :30, :2] = init_pred_global_reg_tot
+    mask[10, 0, :, :6, 0, 0] = init_pred_global_cls_tot
+    mask[11, :, 0, 0, 0, 0] = vehicle_per_batch
+
+    return mask, action_input_tot, return_batch['graph']
+
 
 
 def from_numpy(data):
@@ -672,6 +698,7 @@ def cat(batch):
         return_batch = batch
     return return_batch
 
+
 def circle_line_intersection(p2, p1, center):
     if p2[1] > p1[1]:
         y2 = p2[1] - center[1]
@@ -684,16 +711,16 @@ def circle_line_intersection(p2, p1, center):
         x2 = p1[0] - center[0]
         x1 = p2[0] - center[0]
 
-    dx = x2-x1
-    dy = y2-y1
-    dr = np.sqrt(dx**2 + dy**2)
-    D = x1*y2-x2*y1
-    cand1 = [(D*dy + dx * np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[0], (-D*dx+dy*np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[1]]
-    cand2 = [(D*dy - dx * np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[0], (-D*dx-dy*np.sqrt(2**2*dr**2-D**2)) / dr**2 + center[1]]
+    dx = x2 - x1
+    dy = y2 - y1
+    dr = np.sqrt(dx ** 2 + dy ** 2)
+    D = x1 * y2 - x2 * y1
+    cand1 = [(D * dy + dx * np.sqrt(2 ** 2 * dr ** 2 - D ** 2)) / dr ** 2 + center[0], (-D * dx + dy * np.sqrt(2 ** 2 * dr ** 2 - D ** 2)) / dr ** 2 + center[1]]
+    cand2 = [(D * dy - dx * np.sqrt(2 ** 2 * dr ** 2 - D ** 2)) / dr ** 2 + center[0], (-D * dx - dy * np.sqrt(2 ** 2 * dr ** 2 - D ** 2)) / dr ** 2 + center[1]]
 
     if min(p2[0], p1[0]) <= cand1[0] <= max(p2[0], p1[0]):
         if min(p2[0], p1[0]) <= cand2[0] <= max(p2[0], p1[0]):
-            min_idx = np.argmin([np.linalg.norm(p2 - cand1),np.linalg.norm(p2 - cand2)])
+            min_idx = np.argmin([np.linalg.norm(p2 - cand1), np.linalg.norm(p2 - cand2)])
             if min_idx == 0:
                 point = cand1
             elif min_idx == 1:
@@ -777,6 +804,7 @@ def reform(ego_fut_traj, cl_cands_target, init_pred_global):
         reformed.append(feat)
     return reformed
 
+
 def get_nearest_cl(cl_cands_target_tmp, init_pred_global_tmp):
     dist = []
     for i in range(len(cl_cands_target_tmp)):
@@ -792,6 +820,7 @@ def get_nearest_cl(cl_cands_target_tmp, init_pred_global_tmp):
         dist.append(torch.mean(dist_tmp).unsqueeze(dim=0))
     dist = torch.cat(dist)
     return cl_cands_target_tmp[torch.argmin(dist)]
+
 
 def get_cl_dense(self, cl_tmp):
     cl_mod = torch.zeros_like(torch.repeat_interleave(cl_tmp, 4, dim=0))
