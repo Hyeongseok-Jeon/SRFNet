@@ -106,6 +106,7 @@ start_time = time.time()
 for epoch in range(config["num_epochs"]):
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader)):
+        print(data[0].shape)
         with torch.no_grad():
             actors = base_net(data)
         outputs = model(data[0], data[1], actors)
