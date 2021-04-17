@@ -637,6 +637,7 @@ def collate_fn(batch):
         return_batch[keys] = [return_batch[keys][i][0] for i in range(len(return_batch[keys]))]
 
     orig_tot = torch.cat([return_batch['orig'][i].unsqueeze(dim=0) for i in range(len(return_batch['orig']))])  # (batch num, 2)
+    batch_num = orig_tot.shape[0]
     gt_preds_tot = torch.cat(return_batch['gt_preds'])  # (vehicle num, 30, 2)
     has_preds_tot = torch.cat(return_batch['has_preds'])  # (vehicle num, 30)
     theta_tot = torch.cat([torch.from_numpy(np.asarray([[return_batch['theta'][i]]])) for i in range(len(return_batch['theta']))])  # (batch num, 1)
@@ -651,9 +652,7 @@ def collate_fn(batch):
     vehicle_per_batch_tmp = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
     idx = []
     for i in range(batch_num + 1):
-        idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
-    
-    batch_num = orig_tot.shape[0]
+        idx.append(int(sum(vehicle_per_batch_tmp[j + 1] for j in range(i))))
     vehicle_num = gt_preds_tot.shape[0]
     data_num = 12
     max_vehicle_in_batch = torch.max(vehicle_per_batch)
