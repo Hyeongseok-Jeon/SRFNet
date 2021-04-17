@@ -19,7 +19,7 @@ class model_class(nn.Module):
         self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
 
-    def forward(self, mask, action_input_tot, actors):
+    def forward(self, mask, action_input_tot, actors, actors_idcs):
 
         mask = torch.transpose(mask, 0, 1)
         batch_num = mask.shape[1]
@@ -52,7 +52,7 @@ class model_class(nn.Module):
         init_pred_global = [init_pred]
 
         mus_enc, _ = self.ego_react_encoder(ego_fut_traj, hid)
-        delta = self.generator(mus_enc, actors, batch_num)
+        delta = self.generator(mus_enc, actors, actors_idcs, batch_num)
         init_pred_global[0]['cls'] = [init_pred_global[0]['cls'][i][1:2, :] for i in range(batch_num)]
         init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1, :, :, :] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
@@ -98,12 +98,12 @@ class GenerateNet(nn.Module):
         self.x_gen = nn.Linear(2 * config['n_actor'], 1)
         self.y_gen = nn.Linear(2 * config['n_actor'], 1)
 
-    def forward(self, mus_enc, actors, batch_num):
-        actor = actors[0]
-        actor_idcs = actors[1]
+    def forward(self, mus_enc, actors, actors_idcs, batch_num):
+        actor_idcs_mod = [actors_idcs[i, 0:torch.argmax(actors_idcs[i]) + 1:] for i in range(2)]
+        actor_mod = torch.cat([actors[i, :len(actor_idcs_mod[i]), :] for i in range(2)])
 
         mus_in = torch.cat(mus_enc, dim=1)
-        actor_target = torch.cat([torch.repeat_interleave(actor[actor_idcs[i][1]:actor_idcs[i][1] + 1], 6, dim=0) for i in range(len(actor_idcs))], dim=0)
+        actor_target = torch.cat([torch.repeat_interleave(actor_mod[int(actor_idcs_mod[i][1]):int(actor_idcs_mod[i][1] + 1)], 6, dim=0) for i in range(len(actor_idcs_mod))], dim=0)
         actor_in = torch.repeat_interleave(actor_target.unsqueeze(dim=0), 4, dim=0)
         out = self.lstm(mus_in, (torch.zeros_like(actor_in), actor_in))[0]
         x_out = self.x_gen(out)
@@ -239,10 +239,10 @@ class Loss(nn.Module):
             top_1_idx.append(torch.argmax(preds_cls[i]) + 6 * i)
 
         dist_error = torch.cat(dist_error, dim=0)
-        ade6_x_sum = sum([torch.min(torch.sum(dist_error[6*i:6*(i+1), :, 0], dim=1)) for i in range(batch_num)])
-        ade6_y_sum = sum([torch.min(torch.sum(dist_error[6*i:6*(i+1), :, 1], dim=1)) for i in range(batch_num)])
-        fde6_x_sum = sum([torch.min(dist_error[6*i:6*(i+1), -1, 0]) for i in range(batch_num)])
-        fde6_y_sum = sum([torch.min(dist_error[6*i:6*(i+1), -1, 1]) for i in range(batch_num)])
+        ade6_x_sum = sum([torch.min(torch.sum(dist_error[6 * i:6 * (i + 1), :, 0], dim=1)) for i in range(batch_num)])
+        ade6_y_sum = sum([torch.min(torch.sum(dist_error[6 * i:6 * (i + 1), :, 1], dim=1)) for i in range(batch_num)])
+        fde6_x_sum = sum([torch.min(dist_error[6 * i:6 * (i + 1), -1, 0]) for i in range(batch_num)])
+        fde6_y_sum = sum([torch.min(dist_error[6 * i:6 * (i + 1), -1, 1]) for i in range(batch_num)])
         ade6_num = batch_num * dist_error.shape[1]
         fde6_num = batch_num
 

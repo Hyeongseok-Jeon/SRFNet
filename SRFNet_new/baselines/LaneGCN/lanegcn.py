@@ -13,11 +13,12 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from data import ArgoDataset, collate_fn
-from utils import gpu, to_long,  Optimizer, StepLR
+from utils import gpu, to_long, Optimizer, StepLR
 
 from baselines.LaneGCN.layers import Conv1d, Res1d, Linear, LinearRes, Null
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+
 
 ### end of config ###
 
@@ -40,6 +41,7 @@ class Net(nn.Module):
         4. PredNet: prediction header for motion forecasting using 
            feature from A2A
     """
+
     def __init__(self, config):
         super(Net, self).__init__()
         self.config = config
@@ -54,7 +56,7 @@ class Net(nn.Module):
 
         self.pred_net = PredNet(config)
 
-    def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
+    def forward(self, data: Dict):
         mask = torch.transpose(data[0], 0, 1)
         batch_num = mask.shape[1]
         vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
@@ -63,8 +65,8 @@ class Net(nn.Module):
         for i in range(batch_num + 1):
             idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
 
-        feats = [mask[5, 0, : int(vehicle_per_batch[i+1]), :20, :3, 0] for i in range(batch_num)]
-        ctrs = [mask[7, 0, : int(vehicle_per_batch[i+1]), :2, 0, 0]  for i in range(batch_num)]
+        feats = [mask[5, 0, : int(vehicle_per_batch[i + 1]), :20, :3, 0] for i in range(batch_num)]
+        ctrs = [mask[7, 0, : int(vehicle_per_batch[i + 1]), :2, 0, 0] for i in range(batch_num)]
 
         # construct actor feature
         actors, actor_idcs = actor_gather(gpu(feats))
@@ -80,6 +82,12 @@ class Net(nn.Module):
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
+        actors_out = torch.zeros(size=[batch_num, max([len(actor_idcs[i]) for i in range(batch_num)]), 128])
+        actor_idcs_out = torch.zeros(size=[batch_num, max([len(actor_idcs[i]) for i in range(batch_num)])])
+        for i in range(batch_num):
+            actors_out[i, :len(actor_idcs[i]), :] = actors[actor_idcs[i][0]:actor_idcs[i][-1]+1, :]
+            actor_idcs_out[i, :len(actor_idcs[i])] = actor_idcs[i]
+
         del nodes, node_idcs, node_ctrs, graph, ctrs, feats, idx, vehicle_per_batch, batch_num, mask
         # prediction
         # out = self.pred_net(actors, actor_idcs, actor_ctrs)
@@ -89,8 +97,7 @@ class Net(nn.Module):
         #     out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
         #         1, 1, 1, -1
         #     )
-        return [actors, actor_idcs, actor_ctrs]
-
+        return actors_out, actor_idcs_out
 
 
 def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
@@ -154,6 +161,7 @@ class ActorNet(nn.Module):
     """
     Actor feature extractor with Conv1D
     """
+
     def __init__(self, config):
         super(ActorNet, self).__init__()
         self.config = config
@@ -208,6 +216,7 @@ class MapNet(nn.Module):
     """
     Map Graph feature extractor with LaneGraphCNN
     """
+
     def __init__(self, config):
         super(MapNet, self).__init__()
         self.config = config
@@ -309,6 +318,7 @@ class A2M(nn.Module):
     Actor to Map Fusion:  fuses real-time traffic information from
     actor nodes to lane nodes
     """
+
     def __init__(self, config):
         super(A2M, self).__init__()
         self.config = config
@@ -353,6 +363,7 @@ class M2M(nn.Module):
     The lane to lane block: propagates information over lane
             graphs and updates the features of lane nodes
     """
+
     def __init__(self, config):
         super(M2M, self).__init__()
         self.config = config
@@ -426,6 +437,7 @@ class M2A(nn.Module):
     The lane to actor block fuses updated
         map information from lane nodes to actor nodes
     """
+
     def __init__(self, config):
         super(M2A, self).__init__()
         self.config = config
@@ -458,6 +470,7 @@ class A2A(nn.Module):
     """
     The actor to actor block performs interactions among actors.
     """
+
     def __init__(self, config):
         super(A2A, self).__init__()
         self.config = config
@@ -517,6 +530,7 @@ class PredNet(nn.Module):
     """
     Final motion forecasting with Linear Residual block
     """
+
     def __init__(self, config):
         super(PredNet, self).__init__()
         self.config = config
@@ -577,6 +591,7 @@ class Att(nn.Module):
     Attention block to pass context nodes information to target nodes
     This is used in Actor2Map, Actor2Actor, Map2Actor and Map2Map
     """
+
     def __init__(self, n_agt: int, n_ctx: int) -> None:
         super(Att, self).__init__()
         norm = "GN"
@@ -719,8 +734,8 @@ class PredLoss(nn.Module):
             dist.append(
                 torch.sqrt(
                     (
-                        (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
-                        ** 2
+                            (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
+                            ** 2
                     ).sum(1)
                 )
             )
@@ -735,7 +750,7 @@ class PredLoss(nn.Module):
         mask = mgn < self.config["mgn"]
         coef = self.config["cls_coef"]
         loss_out["cls_loss"] += coef * (
-            self.config["mgn"] * mask.sum() - mgn[mask].sum()
+                self.config["mgn"] * mask.sum() - mgn[mask].sum()
         )
         loss_out["num_cls"] += mask.sum().item()
 
@@ -757,7 +772,7 @@ class Loss(nn.Module):
     def forward(self, out: Dict, data: Dict) -> Dict:
         loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
         loss_out["loss"] = loss_out["cls_loss"] / (
-            loss_out["num_cls"] + 1e-10
+                loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
         return loss_out
 
@@ -767,14 +782,14 @@ class PostProcess(nn.Module):
         super(PostProcess, self).__init__()
         self.config = config
 
-    def forward(self, out,data):
+    def forward(self, out, data):
         post_out = dict()
         post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
         post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
         post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
         return post_out
 
-    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
+    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]] = None) -> Dict:
         if len(metrics.keys()) == 0:
             for key in loss_out:
                 if key != "loss":
