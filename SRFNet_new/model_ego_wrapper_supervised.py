@@ -21,6 +21,7 @@ class model(nn.Module):
         self.generator = GenerateNet(config)
 
     def forward(self, mask, action_input_tot, actors):
+        print(mask.shape)
         batch_num = mask.shape[1]
         vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
         vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
