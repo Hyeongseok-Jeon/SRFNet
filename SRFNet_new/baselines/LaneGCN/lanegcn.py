@@ -55,7 +55,7 @@ class Net(nn.Module):
         self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
-        mask = data[0]
+        mask = torch.transpose(data[0], 0, 1)
         batch_num = mask.shape[1]
         vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
         vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32), vehicle_per_batch))
@@ -63,8 +63,8 @@ class Net(nn.Module):
         for i in range(batch_num + 1):
             idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
 
-        feats = [mask[5, 0, idx[i]: idx[i+1], :20, :3, 0] for i in range(batch_num)]
-        ctrs = [mask[7, 0, idx[i]: idx[i+1], :2, 0, 0]  for i in range(batch_num)]
+        feats = [mask[5, 0, : vehicle_per_batch[i+1], :20, :3, 0] for i in range(batch_num)]
+        ctrs = [mask[7, 0, : vehicle_per_batch[i+1], :2, 0, 0]  for i in range(batch_num)]
 
         # construct actor feature
         actors, actor_idcs = actor_gather(gpu(feats))
