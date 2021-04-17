@@ -25,9 +25,9 @@ class model(nn.Module):
         vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
         vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
         idx = []
-        for i in range(batch_num+1):
-            idx.append(int(sum(vehicle_per_batch[j+1] for j in range(i))))
-        gt_preds = [mask[1, 0, idx[i]: idx[i+1], :30, :2, 0] for i in range(batch_num)]
+        for i in range(batch_num + 1):
+            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
+        gt_preds = [mask[1, 0, idx[i]: idx[i + 1], :30, :2, 0] for i in range(batch_num)]
         ego_fut_traj = [gpu(gt_preds[i][0:1, :, :]) for i in range(batch_num)]
         hid = [gpu(action_input_tot[i, :, :, :]) for i in range(batch_num)]
 
@@ -36,8 +36,8 @@ class model(nn.Module):
         init_pred_global_cls_tot = mask[10, 0, :, :6, 0, 0]
         for i in range(batch_num):
             pred = dict()
-            reg = init_pred_global_reg_tot[idx[i]: idx[i+1], :, :, :]
-            cls = init_pred_global_cls_tot[idx[i]: idx[i+1], :]
+            reg = init_pred_global_reg_tot[idx[i]: idx[i + 1], :, :, :]
+            cls = init_pred_global_cls_tot[idx[i]: idx[i + 1], :]
             pred['reg'] = [reg]
             pred['cls'] = [cls]
             init_pred_global.append(pred)
@@ -155,8 +155,8 @@ class PredLoss(nn.Module):
             dist.append(
                 torch.sqrt(
                     (
-                        (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
-                        ** 2
+                            (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
+                            ** 2
                     ).sum(1)
                 )
             )
@@ -171,7 +171,7 @@ class PredLoss(nn.Module):
         mask = mgn < self.config["mgn"]
         coef = self.config["cls_coef"]
         loss_out["cls_loss"] += coef * (
-            self.config["mgn"] * mask.sum() - mgn[mask].sum()
+                self.config["mgn"] * mask.sum() - mgn[mask].sum()
         )
         loss_out["num_cls"] += mask.sum().item()
 
@@ -233,11 +233,11 @@ class Loss(nn.Module):
 
             for ii in range(30):
                 rot = torch.zeros((2, 2), device="cuda")
-                rot[0,0] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
-                rot[0,1] = -torch.sin(torch.deg2rad(-heading[i][0, ii]))
-                rot[1,0] = torch.sin(torch.deg2rad(-heading[i][0, ii]))
-                rot[1,1] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
-                dist_error_init[:,ii,:] = torch.matmul(rot, dist_error_init[:,ii,:].T).T
+                rot[0, 0] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
+                rot[0, 1] = -torch.sin(torch.deg2rad(-heading[i][0, ii]))
+                rot[1, 0] = torch.sin(torch.deg2rad(-heading[i][0, ii]))
+                rot[1, 1] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
+                dist_error_init[:, ii, :] = torch.matmul(rot, dist_error_init[:, ii, :].T).T
 
             dist_error.append(torch.abs(dist_error_init))
             top_1_idx.append(torch.argmax(preds_cls[i]) + 6 * i)
@@ -303,6 +303,11 @@ class PostProcess(nn.Module):
             for key in post_out:
                 metrics[key] = []
 
+            metrics['ade1'] = 0.0
+            metrics['fde1'] = 0.0
+            metrics['ade6'] = 0.0
+            metrics['fde6'] = 0.0
+            metrics['official_loss_cnt'] = 0
         for key in loss_out:
             if key == "loss":
                 continue
@@ -311,8 +316,16 @@ class PostProcess(nn.Module):
             else:
                 metrics[key] += loss_out[key]
 
-        for key in post_out:
-            metrics[key] += post_out[key]
+        preds = np.concatenate(post_out["preds"], 0)
+        gt_preds = np.concatenate(post_out["gt_preds"], 0)
+        has_preds = np.concatenate(post_out["has_preds"], 0)
+        ade1, fde1, ade6, fde6, min_idcs = pred_metrics(preds, gt_preds, has_preds)
+
+        metrics['ade1'] = metrics['ade1'] + ade1.item() * preds.shape[0]
+        metrics['fde1'] = metrics['fde1'] + fde1.item() * preds.shape[0]
+        metrics['ade6'] = metrics['ade6'] + ade6.item() * preds.shape[0]
+        metrics['fde6'] = metrics['fde6'] + fde6.item() * preds.shape[0]
+        metrics['official_loss_cnt'] = metrics['official_loss_cnt'] + preds.shape[0]
         return metrics
 
     def display(self, metrics, dt, epoch, lr=None):
@@ -338,10 +351,15 @@ class PostProcess(nn.Module):
         reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
         loss = cls + reg
 
-        preds = np.concatenate(metrics["preds"], 0)
-        gt_preds = np.concatenate(metrics["gt_preds"], 0)
-        has_preds = np.concatenate(metrics["has_preds"], 0)
-        ade1, fde1, ade6, fde6, min_idcs = pred_metrics(preds, gt_preds, has_preds)
+        # preds = np.concatenate(metrics["preds"], 0)
+        # gt_preds = np.concatenate(metrics["gt_preds"], 0)
+        # has_preds = np.concatenate(metrics["has_preds"], 0)
+        # ade1, fde1, ade6, fde6, min_idcs = pred_metrics(preds, gt_preds, has_preds)
+
+        ade1 = metrics['ade1'] / metrics['official_loss_cnt']
+        fde1 = metrics['fde1'] / metrics['official_loss_cnt']
+        ade6 = metrics['ade6'] / metrics['official_loss_cnt']
+        fde6 = metrics['fde6'] / metrics['official_loss_cnt']
 
         print(
             "loss %2.4f %2.4f %2.4f, ade1 %2.4f, ade1_x %2.4f, ade1_y %2.4f, fde1 %2.4f, fde1_x %2.4f, fde1_y %2.4f, ade6 %2.4f, ade6_x %2.4f, ade6_y %2.4f, fde6 %2.4f, fde6_x %2.4f, fde6_y %2.4f"

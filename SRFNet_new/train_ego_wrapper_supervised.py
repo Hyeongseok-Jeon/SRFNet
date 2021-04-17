@@ -63,7 +63,7 @@ model = nn.DataParallel(net)
 model.cuda()
 
 
-dataset = ArgoDataset(config["train_split"], config, train=False)
+dataset = ArgoDataset(config["train_split"], config, train=True)
 train_loader = DataLoader(
     dataset,
     batch_size=config["batch_size"],
@@ -74,14 +74,14 @@ train_loader = DataLoader(
 )
 
 # Data loader for evaluation
-dataset = ArgoDataset(config["val_split"], config, train=False)
-val_loader = DataLoader(
-    dataset,
-    batch_size=config["val_batch_size"],
-    num_workers=config["val_workers"],
-    shuffle=True,
-    collate_fn=collate_fn,
-)
+# dataset = ArgoDataset(config["val_split"], config, train=False)
+# val_loader = DataLoader(
+#     dataset,
+#     batch_size=config["val_batch_size"],
+#     num_workers=config["val_workers"],
+#     shuffle=True,
+#     collate_fn=collate_fn,
+# )
 l1loss = nn.SmoothL1Loss()
 loss_logging = Loss(config)
 post_process = PostProcess(config)
