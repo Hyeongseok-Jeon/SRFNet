@@ -10,36 +10,34 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 
 ### end of config ###
-class model(nn.Module):
+class model_class(nn.Module):
     def __init__(self, config, args, base_net):
-        super(model, self).__init__()
+        super(model_class, self).__init__()
         self.config = config
         self.args = args
-
         self.base_net = base_net
-        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
+        self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
 
     def forward(self, mask, action_input_tot, actors):
-        print(mask.shape)
+
         mask = torch.transpose(mask, 0, 1)
         batch_num = mask.shape[1]
         vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
-        vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
-        idx = []
-        for i in range(batch_num + 1):
-            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
-        gt_preds = [mask[1, 0, idx[i]: idx[i + 1], :30, :2, 0] for i in range(batch_num)]
+        gt_preds = [mask[1, i, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
         ego_fut_traj = [gpu(gt_preds[i][0:1, :, :]) for i in range(batch_num)]
         hid = [gpu(action_input_tot[i, :, :, :]) for i in range(batch_num)]
 
         init_pred_global = []
-        init_pred_global_reg_tot = mask[9, 0, :, :6, :30, :2]
-        init_pred_global_cls_tot = mask[10, 0, :, :6, 0, 0]
+        init_pred_global_reg_tot = [mask[9, i, :int(vehicle_per_batch[i]), :6, :30, :2] for i in range(batch_num)]
+        init_pred_global_cls_tot = [mask[10, i, :int(vehicle_per_batch[i]), :6, 0, 0] for i in range(batch_num)]
+
+        # init_pred_global_reg_tot = mask[9, 0, :, :6, :30, :2]
+        # init_pred_global_cls_tot = mask[10, 0, :, :6, 0, 0]
         for i in range(batch_num):
             pred = dict()
-            reg = init_pred_global_reg_tot[idx[i]: idx[i + 1], :, :, :]
-            cls = init_pred_global_cls_tot[idx[i]: idx[i + 1], :]
+            reg = init_pred_global_reg_tot[i][:int(vehicle_per_batch[i]), :, :, :]
+            cls = init_pred_global_cls_tot[i][:int(vehicle_per_batch[i]), :]
             pred['reg'] = [reg]
             pred['cls'] = [cls]
             init_pred_global.append(pred)
@@ -194,14 +192,10 @@ class Loss(nn.Module):
         self.lanegcn_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        batch_num = data[0].shape[1]
-        vehicle_per_batch = data[0][11, :, 0, 0, 0, 0]
-        vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
-        idx = []
-        for i in range(batch_num + 1):
-            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
-        gt_preds = [data[0][1, 0, idx[i]: idx[i + 1], :30, :2, 0] for i in range(batch_num)]
-        has_preds = [data[0][2, 0, idx[i]: idx[i + 1], :30, 0, 0].bool() for i in range(batch_num)]
+        batch_num = data[0].shape[0]
+        vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
+        gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
+        has_preds = [data[0][i, 2, :int(vehicle_per_batch[i]), :30, 0, 0].bool() for i in range(batch_num)]
 
         gt = gpu([gt_preds[i][1:2, :, :] for i in range(len(gt_preds))])
         has = gpu([has_preds[i][1:2, :] for i in range(len(has_preds))])
@@ -245,12 +239,12 @@ class Loss(nn.Module):
             top_1_idx.append(torch.argmax(preds_cls[i]) + 6 * i)
 
         dist_error = torch.cat(dist_error, dim=0)
-        ade6_x_sum = torch.sum(dist_error[:, :, 0])
-        ade6_y_sum = torch.sum(dist_error[:, :, 1])
-        fde6_x_sum = torch.sum(dist_error[:, -1, 0])
-        fde6_y_sum = torch.sum(dist_error[:, -1, 1])
-        ade6_num = dist_error.shape[0] * dist_error.shape[1]
-        fde6_num = dist_error.shape[0]
+        ade6_x_sum = sum([torch.min(torch.sum(dist_error[6*i:6*(i+1), :, 0], dim=1)) for i in range(batch_num)])
+        ade6_y_sum = sum([torch.min(torch.sum(dist_error[6*i:6*(i+1), :, 1], dim=1)) for i in range(batch_num)])
+        fde6_x_sum = sum([torch.min(dist_error[6*i:6*(i+1), -1, 0]) for i in range(batch_num)])
+        fde6_y_sum = sum([torch.min(dist_error[6*i:6*(i+1), -1, 1]) for i in range(batch_num)])
+        ade6_num = batch_num * dist_error.shape[1]
+        fde6_num = batch_num
 
         ade1_x_sum = torch.sum(dist_error[top_1_idx, :, 0])
         ade1_y_sum = torch.sum(dist_error[top_1_idx, :, 1])
@@ -282,14 +276,11 @@ class PostProcess(nn.Module):
 
     def forward(self, out, data):
         post_out = dict()
-        batch_num = data[0].shape[1]
-        vehicle_per_batch = data[0][11, :, 0, 0, 0, 0]
-        vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
-        idx = []
-        for i in range(batch_num + 1):
-            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
-        gt_preds = [data[0][1, 0, idx[i]: idx[i + 1], :30, :2, 0] for i in range(batch_num)]
-        has_preds = [data[0][2, 0, idx[i]: idx[i + 1], :30, 0, 0] for i in range(batch_num)]
+        batch_num = data[0].shape[0]
+        vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
+
+        gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
+        has_preds = [data[0][i, 2, :int(vehicle_per_batch[i]), :30, 0, 0] for i in range(batch_num)]
 
         post_out["preds"] = [x.detach().cpu().numpy() for x in out["reg"]]
         post_out["gt_preds"] = [x[1:2].numpy() for x in gt_preds]

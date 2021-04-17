@@ -58,10 +58,9 @@ pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") +
 pretrained_dict = pre_trained_weight['state_dict']
 base_net.load_state_dict(pretrained_dict)
 
-net = model.model(config, args, base_net)
+net = model.model_class(config, args, base_net)
 model = nn.DataParallel(net)
 model.cuda()
-
 
 dataset = ArgoDataset(config["train_split"], config, train=True)
 train_loader = DataLoader(
@@ -74,14 +73,14 @@ train_loader = DataLoader(
 )
 
 # Data loader for evaluation
-# dataset = ArgoDataset(config["val_split"], config, train=False)
-# val_loader = DataLoader(
-#     dataset,
-#     batch_size=config["val_batch_size"],
-#     num_workers=config["val_workers"],
-#     shuffle=True,
-#     collate_fn=collate_fn,
-# )
+dataset = ArgoDataset(config["val_split"], config, train=False)
+val_loader = DataLoader(
+    dataset,
+    batch_size=config["val_batch_size"],
+    num_workers=config["val_workers"],
+    shuffle=True,
+    collate_fn=collate_fn,
+)
 l1loss = nn.SmoothL1Loss()
 loss_logging = Loss(config)
 post_process = PostProcess(config)
@@ -106,22 +105,25 @@ start_time = time.time()
 for epoch in range(config["num_epochs"]):
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader)):
-        print(data[0].shape)
         with torch.no_grad():
             actors = base_net(data)
         outputs = model(data[0], data[1], actors)
+        # actors should be tensor
 
-        batch_num = data[0].shape[1]
-        vehicle_per_batch = data[0][11, :, 0, 0, 0, 0]
-        vehicle_per_batch = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
-        idx = []
-        for i in range(batch_num + 1):
-            idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
-        gt_preds = [data[0][1, 0, idx[i]: idx[i + 1], :30, :2, 0] for i in range(batch_num)]
+        batch_num = data[0].shape[0]
+        vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
+        gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
 
         pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
-        gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2,:,:], 6, dim=0) for i in range(len(gt_preds))], dim=0)
+        gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0) for i in range(len(gt_preds))], dim=0)
         loss = l1loss(pred, gt)
+
+        if i == 0:
+            loss_out = loss_logging(outputs[0], data)
+            post_out = post_process(outputs[0], data)
+            post_process.append(metrics, loss_out, post_out)
+            dt = time.time() - start_time
+            post_process.display(metrics, dt, epoch, 0.001)
 
         opt.zero_grad()
         loss.backward()
@@ -136,3 +138,27 @@ for epoch in range(config["num_epochs"]):
     post_process.display(metrics, dt, epoch, 0.001)
     start_time = time.time()
     metrics = dict()
+
+    if epoch % 2 == 1:
+        metrics = dict()
+        for i, data in tqdm(enumerate(val_loader)):
+            with torch.no_grad():
+                actors = base_net(data)
+                outputs = model(data[0], data[1], actors)
+            # actors should be tensor
+
+                batch_num = data[0].shape[0]
+                vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
+                gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
+
+                pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
+                gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0) for i in range(len(gt_preds))], dim=0)
+                loss = l1loss(pred, gt)
+
+                loss_out = loss_logging(outputs[0], data)
+                post_out = post_process(outputs[0], data)
+                post_process.append(metrics, loss_out, post_out)
+        dt = time.time() - start_time
+        post_process.display(metrics, dt, epoch, 0.001)
+        start_time = time.time()
+        metrics = dict()

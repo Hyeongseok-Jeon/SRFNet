@@ -657,7 +657,7 @@ def collate_fn(batch):
     data_num = 12
     max_vehicle_in_batch = torch.max(vehicle_per_batch)
     
-    mask = torch.zeros(size=(batch_num, data_num, max_vehicle_in_batch, 50, 30, 2))
+    mask = torch.zeros(size=[batch_num, data_num, max_vehicle_in_batch, 50, 30, 2])
     mask[:, 0, 0, :2, 0, 0] = orig_tot
     mask[:, 3, 0, :1, 0, 0] = theta_tot
     mask[:, 4, 0, :2, :2, 0] = rot_tot
@@ -671,7 +671,6 @@ def collate_fn(batch):
         mask[i, 7, :vehicle_per_batch[i], :2, 0, 0] = ctrs_tot[idx[i]:idx[i+1],:]
         mask[i, 9, :vehicle_per_batch[i], :6, :30, :2] = init_pred_global_reg_tot[idx[i]:idx[i+1],:, :, :]
         mask[i, 10, :vehicle_per_batch[i], :6, 0, 0] = init_pred_global_cls_tot[idx[i]:idx[i+1],:]
-        mask[i, 11, 0, 0, 0, 0] = vehicle_per_batch[i]
 
     return mask, action_input_tot, return_batch['graph']
 
