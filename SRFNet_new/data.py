@@ -648,22 +648,31 @@ def collate_fn(batch):
     init_pred_global_reg_tot = torch.cat([return_batch['init_pred_global'][i]['reg'][0] for i in range(len(return_batch['init_pred_global']))], dim=0)  # (vehicle num, 6, 30, 2)
     init_pred_global_cls_tot = torch.cat([return_batch['init_pred_global'][i]['cls'][0] for i in range(len(return_batch['init_pred_global']))], dim=0)  # (vehicle num, 6)
     vehicle_per_batch = torch.cat([torch.tensor(return_batch['gt_preds'][i].shape[0]).unsqueeze(dim=0) for i in range(len(return_batch['gt_preds']))], dim=0)
+    vehicle_per_batch_tmp = torch.cat((torch.tensor([0.], dtype=torch.float32, device=vehicle_per_batch.device), vehicle_per_batch))
+    idx = []
+    for i in range(batch_num + 1):
+        idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
+    
     batch_num = orig_tot.shape[0]
     vehicle_num = gt_preds_tot.shape[0]
     data_num = 12
-
-    mask = torch.zeros(size=(data_num, batch_num, vehicle_num, 50, 30, 2))
-    mask[0, :, 0, :2, 0, 0] = orig_tot
-    mask[1, 0, :, :30, :2, 0] = gt_preds_tot
-    mask[2, 0, :, :30, 0, 0] = has_preds_tot
-    mask[3, :, 0, :1, 0, 0] = theta_tot
-    mask[4, :, 0, :2, :2, 0] = rot_tot
-    mask[5, 0, :, :20, :3, 0] = feats_tot
-    mask[6, :, 0, :50, :3, 0] = ego_feats_tot
-    mask[7, 0, :, :2, 0, 0] = ctrs_tot
-    mask[9, 0, :, :6, :30, :2] = init_pred_global_reg_tot
-    mask[10, 0, :, :6, 0, 0] = init_pred_global_cls_tot
-    mask[11, :, 0, 0, 0, 0] = vehicle_per_batch
+    max_vehicle_in_batch = torch.max(vehicle_per_batch)
+    
+    mask = torch.zeros(size=(batch_num, data_num, max_vehicle_in_batch, 50, 30, 2))
+    mask[:, 0, 0, :2, 0, 0] = orig_tot
+    mask[:, 3, 0, :1, 0, 0] = theta_tot
+    mask[:, 4, 0, :2, :2, 0] = rot_tot
+    mask[:, 6, 0, :50, :3, 0] = ego_feats_tot
+    mask[:, 11, 0, 0, 0, 0] = vehicle_per_batch
+    
+    for i in range(batch_num):
+        mask[i, 1, :vehicle_per_batch[i], :30, :2, 0] = gt_preds_tot[idx[i]:idx[i+1],: ,:]
+        mask[i, 2, :vehicle_per_batch[i], :30, 0, 0] = has_preds_tot[idx[i]:idx[i+1],:]
+        mask[i, 5, :vehicle_per_batch[i], :20, :3, 0] = feats_tot[idx[i]:idx[i+1],: ,:]
+        mask[i, 7, :vehicle_per_batch[i], :2, 0, 0] = ctrs_tot[idx[i]:idx[i+1],:]
+        mask[i, 9, :vehicle_per_batch[i], :6, :30, :2] = init_pred_global_reg_tot[idx[i]:idx[i+1],:, :, :]
+        mask[i, 10, :vehicle_per_batch[i], :6, 0, 0] = init_pred_global_cls_tot[idx[i]:idx[i+1],:]
+        mask[i, 11, 0, 0, 0, 0] = vehicle_per_batch[i]
 
     return mask, action_input_tot, return_batch['graph']
 
