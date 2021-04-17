@@ -63,8 +63,8 @@ class Net(nn.Module):
         for i in range(batch_num + 1):
             idx.append(int(sum(vehicle_per_batch[j + 1] for j in range(i))))
 
-        feats = [mask[5, 0, : vehicle_per_batch[i+1], :20, :3, 0] for i in range(batch_num)]
-        ctrs = [mask[7, 0, : vehicle_per_batch[i+1], :2, 0, 0]  for i in range(batch_num)]
+        feats = [mask[5, 0, : int(vehicle_per_batch[i+1]), :20, :3, 0] for i in range(batch_num)]
+        ctrs = [mask[7, 0, : int(vehicle_per_batch[i+1]), :2, 0, 0]  for i in range(batch_num)]
 
         # construct actor feature
         actors, actor_idcs = actor_gather(gpu(feats))
