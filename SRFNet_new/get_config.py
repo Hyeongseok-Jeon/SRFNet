@@ -42,10 +42,10 @@ def get_config(args):
     # Preprocessed Dataset
     config["preprocess"] = True  # whether use preprocess or not
     config["preprocess_train"] = os.path.join(
-        root_path, "dataset", "preprocess_GAN", "train_crs_dist6_angle90.p"
+        root_path, "dataset", "preprocess_GAN", "train", "train_crs_dist6_angle90.p"
     )
     config["preprocess_val"] = os.path.join(
-        root_path, "dataset", "preprocess_GAN", "val_crs_dist6_angle90.p"
+        root_path, "dataset", "preprocess_GAN", "val", "val_crs_dist6_angle90.p"
     )
     config["training"] = True
 
