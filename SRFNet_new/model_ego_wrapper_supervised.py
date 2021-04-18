@@ -24,23 +24,43 @@ class model_class(nn.Module):
         mask = torch.transpose(mask, 0, 1)
         batch_num = mask.shape[1]
         vehicle_per_batch = mask[11, :, 0, 0, 0, 0]
-        gt_preds = [mask[1, i, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
-        ego_fut_traj = [gpu(gt_preds[i][0:1, :, :]) for i in range(batch_num)]
-        hid = [gpu(action_input_tot[i, :, :, :]) for i in range(batch_num)]
-
         init_pred_global = []
-        init_pred_global_reg_tot = [mask[9, i, :int(vehicle_per_batch[i]), :6, :30, :2] for i in range(batch_num)]
-        init_pred_global_cls_tot = [mask[10, i, :int(vehicle_per_batch[i]), :6, 0, 0] for i in range(batch_num)]
-
-        # init_pred_global_reg_tot = mask[9, 0, :, :6, :30, :2]
-        # init_pred_global_cls_tot = mask[10, 0, :, :6, 0, 0]
+        gt_preds = []
+        ego_fut_traj = []
+        hid = []
+        init_pred_global_reg_tot = []
+        init_pred_global_cls_tot = []
         for i in range(batch_num):
+            gt_preds.append(mask[1, i, :int(vehicle_per_batch[i]), :30, :2, 0])
+            ego_fut_traj.append(gpu(gt_preds[i][0:1, :, :]))
+            hid.append(gpu(action_input_tot[i, :, :, :]))
+            init_pred_global_reg_tot.append(mask[9, i, :int(vehicle_per_batch[i]), :6, :30, :2])
+            init_pred_global_cls_tot.append(mask[10, i, :int(vehicle_per_batch[i]), :6, 0, 0])
+
             pred = dict()
             reg = init_pred_global_reg_tot[i][:int(vehicle_per_batch[i]), :, :, :]
             cls = init_pred_global_cls_tot[i][:int(vehicle_per_batch[i]), :]
             pred['reg'] = [reg]
             pred['cls'] = [cls]
             init_pred_global.append(pred)
+
+        # gt_preds = [mask[1, i, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
+        # ego_fut_traj = [gpu(gt_preds[i][0:1, :, :]) for i in range(batch_num)]
+        # hid = [gpu(action_input_tot[i, :, :, :]) for i in range(batch_num)]
+        #
+        #
+        # init_pred_global_reg_tot = [mask[9, i, :int(vehicle_per_batch[i]), :6, :30, :2] for i in range(batch_num)]
+        # init_pred_global_cls_tot = [mask[10, i, :int(vehicle_per_batch[i]), :6, 0, 0] for i in range(batch_num)]
+        # for i in range(batch_num):
+        #     pred = dict()
+        #     reg = init_pred_global_reg_tot[i][:int(vehicle_per_batch[i]), :, :, :]
+        #     cls = init_pred_global_cls_tot[i][:int(vehicle_per_batch[i]), :]
+        #     pred['reg'] = [reg]
+        #     pred['cls'] = [cls]
+        #     init_pred_global.append(pred)
+
+        # init_pred_global_reg_tot = mask[9, 0, :, :6, :30, :2]
+        # init_pred_global_cls_tot = mask[10, 0, :, :6, 0, 0]
 
         init_pred_global_raw = [gpu(init_pred_global[i]) for i in range(batch_num)]
         init_pred = dict()

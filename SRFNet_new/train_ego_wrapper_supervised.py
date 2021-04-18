@@ -3,7 +3,7 @@ import model_ego_wrapper_supervised as model
 from model_ego_wrapper_supervised import Loss, PostProcess
 from get_config import get_config
 import argparse
-from data import ArgoDataset, collate_fn
+from SRF_data_loader import SRF_data_loader, collate_fn
 from torch.utils.data import DataLoader
 from baselines.LaneGCN import lanegcn
 import torch
@@ -62,7 +62,7 @@ net = model.model_class(config, args, base_net)
 model = nn.DataParallel(net)
 model.cuda()
 
-dataset = ArgoDataset(config["train_split"], config, train=False)
+dataset = SRF_data_loader(config, train=True)
 train_loader = DataLoader(
     dataset,
     batch_size=config["batch_size"],
@@ -73,14 +73,14 @@ train_loader = DataLoader(
 )
 
 # Data loader for evaluation
-# dataset = ArgoDataset(config["val_split"], config, train=False)
-# val_loader = DataLoader(
-#     dataset,
-#     batch_size=config["val_batch_size"],
-#     num_workers=config["val_workers"],
-#     shuffle=True,
-#     collate_fn=collate_fn,
-# )
+dataset = SRF_data_loader(config, train=False)
+val_loader = DataLoader(
+    dataset,
+    batch_size=config["val_batch_size"],
+    num_workers=config["val_workers"],
+    shuffle=True,
+    collate_fn=collate_fn,
+)
 l1loss = nn.SmoothL1Loss()
 loss_logging = Loss(config)
 post_process = PostProcess(config)

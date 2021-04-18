@@ -27,8 +27,8 @@ def get_config(args):
     if not os.path.isabs(config["save_dir"]):
         config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-    config["batch_size"] = 16
-    config["val_batch_size"] = 16
+    config["batch_size"] = 256
+    config["val_batch_size"] = 256
     config["workers"] = 0
     config["val_workers"] = config["workers"]
 
@@ -46,6 +46,12 @@ def get_config(args):
     )
     config["preprocess_val"] = os.path.join(
         root_path, "dataset", "preprocess_GAN", "val", "val_crs_dist6_angle90.p"
+    )
+    config["SRF_data_train_dir"] = os.path.join(
+        root_path, "dataset", "preprocess_GAN", "train"
+    )
+    config["SRF_data_val_dir"] = os.path.join(
+        root_path, "dataset", "preprocess_GAN", "val"
     )
     config["training"] = True
 
