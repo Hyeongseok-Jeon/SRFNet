@@ -1,7 +1,7 @@
 import torch.nn as nn
-from SRFNet_new.get_config import get_config
+from get_config import get_config
 import argparse
-from SRFNet_new.data import ArgoDataset
+from data import ArgoDataset
 from torch.utils.data import DataLoader
 import pickle5 as pickle
 import torch
