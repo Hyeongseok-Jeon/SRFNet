@@ -107,6 +107,6 @@ train_loader = DataLoader(
 os.mkdir(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val')
 for i, data in tqdm(enumerate(train_loader)):
     file_name = data[3][0].name[:-4]
-
-    with open(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val/'+ file_name + '.pickle', 'wb') as f:
-        pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+    if not(os.path.isfile(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val/'+ file_name + '.pickle')):
+        with open(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val/'+ file_name + '.pickle', 'wb') as f:
+            pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
