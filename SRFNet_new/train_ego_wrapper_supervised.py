@@ -115,6 +115,7 @@ for epoch in range(config["num_epochs"]):
         gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
 
         pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
+        print(pred.shape)
         gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0) for i in range(len(gt_preds))], dim=0)
         loss = l1loss(pred, gt)
 
