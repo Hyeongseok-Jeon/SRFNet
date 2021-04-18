@@ -96,7 +96,7 @@ parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 config = get_config(args)
 cur_dir = os.getcwd()
-dataset = ArgoDataset(config["train_split"], config, train=False)
+dataset = ArgoDataset(config["train_split"], config, train=True)
 train_loader = DataLoader(
     dataset,
     batch_size=1,
@@ -104,9 +104,9 @@ train_loader = DataLoader(
     collate_fn=collate_fn,
     drop_last=True,
 )
-os.makedirs(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val', exist_ok=True)
+os.makedirs(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/train', exist_ok=True)
 for i, data in tqdm(enumerate(train_loader)):
     file_name = data[3][0].name[:-4]
-    if not(os.path.isfile(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val/'+ file_name + '.pickle')):
-        with open(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val/'+ file_name + '.pickle', 'wb') as f:
+    if not(os.path.isfile(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/train/'+ file_name + '.pickle')):
+        with open(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/train/'+ file_name + '.pickle', 'wb') as f:
             pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
