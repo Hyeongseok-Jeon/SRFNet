@@ -57,7 +57,7 @@ class model_class(nn.Module):
         init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1, :, :, :] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
 
-        return torch.zeros(size=[batch_num, 100])
+        return mask
 
 
 class EgoReactEncodeNet(nn.Module):
