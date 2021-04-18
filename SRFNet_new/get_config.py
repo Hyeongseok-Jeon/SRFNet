@@ -27,8 +27,8 @@ def get_config(args):
     if not os.path.isabs(config["save_dir"]):
         config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
 
-    config["batch_size"] = 256
-    config["val_batch_size"] = 256
+    config["batch_size"] = 128
+    config["val_batch_size"] = 128
     config["workers"] = 0
     config["val_workers"] = config["workers"]
 
