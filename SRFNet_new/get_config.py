@@ -1,5 +1,5 @@
 import os
-from utils import gpu, to_long, Optimizer, StepLR, to_float
+from SRFNet_new.utils import gpu, to_long, Optimizer, StepLR, to_float
 
 def get_config(args):
     file_path = os.path.abspath(__file__)
