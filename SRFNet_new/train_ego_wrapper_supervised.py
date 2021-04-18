@@ -109,30 +109,30 @@ for epoch in range(config["num_epochs"]):
             actors, actors_idcs = base_net(data)
         outputs = model(data[0], data[1], actors, actors_idcs)
         # actors should be tensor
-
-        batch_num = data[0].shape[0]
-        vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
-        gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
-
-        pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
-        print(pred.shape)
-        gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0) for i in range(len(gt_preds))], dim=0)
-        loss = l1loss(pred, gt)
-
-        if i == 0:
-            loss_out = loss_logging(outputs[0], data)
-            post_out = post_process(outputs[0], data)
-            post_process.append(metrics, loss_out, post_out)
-            dt = time.time() - start_time
-            post_process.display(metrics, dt, epoch, 0.001)
-
-        opt.zero_grad()
-        loss.backward()
-        opt.step(epoch)
-
-        loss_out = loss_logging(outputs[0], data)
-        post_out = post_process(outputs[0], data)
-        post_process.append(metrics, loss_out, post_out)
+        print(i)
+        # batch_num = data[0].shape[0]
+        # vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
+        # gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
+        #
+        # pred = torch.cat([torch.cat(outputs[0]['reg'], dim=0)[i, :, :, :] for i in range(len(outputs[0]['reg']))], dim=0).cpu()
+        # print(pred.shape)
+        # gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0) for i in range(len(gt_preds))], dim=0)
+        # loss = l1loss(pred, gt)
+        #
+        # if i == 0:
+        #     loss_out = loss_logging(outputs[0], data)
+        #     post_out = post_process(outputs[0], data)
+        #     post_process.append(metrics, loss_out, post_out)
+        #     dt = time.time() - start_time
+        #     post_process.display(metrics, dt, epoch, 0.001)
+        #
+        # opt.zero_grad()
+        # loss.backward()
+        # opt.step(epoch)
+        #
+        # loss_out = loss_logging(outputs[0], data)
+        # post_out = post_process(outputs[0], data)
+        # post_process.append(metrics, loss_out, post_out)
 
     save_ckpt(net, opt, config['save_dir'], epoch)
     dt = time.time() - start_time
