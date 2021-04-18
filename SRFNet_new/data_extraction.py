@@ -104,7 +104,7 @@ train_loader = DataLoader(
     collate_fn=collate_fn,
     drop_last=True,
 )
-os.mkdir(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val')
+os.mkdir(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val', exist_ok=True)
 for i, data in tqdm(enumerate(train_loader)):
     file_name = data[3][0].name[:-4]
     if not(os.path.isfile(cur_dir + '/SRFNet_new/dataset/preprocess_GAN/val/'+ file_name + '.pickle')):
