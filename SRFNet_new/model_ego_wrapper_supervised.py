@@ -16,8 +16,8 @@ class model_class(nn.Module):
         self.config = config
         self.args = args
         self.base_net = base_net
-        self.ego_react_encoder = EgoReactEncodeNet(config)
-        self.generator = GenerateNet(config)
+        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
+        self.generator = GenerateNet(config).cuda()
 
     def forward(self, mask, action_input_tot, actors, actors_idcs):
 
@@ -52,12 +52,17 @@ class model_class(nn.Module):
         init_pred_global = [init_pred]
 
         mus_enc, _ = self.ego_react_encoder(ego_fut_traj, hid)
-        delta = self.generator(mus_enc, actors, actors_idcs, batch_num)
+        delta = self.generator(mus_enc, gpu(actors), gpu(actors_idcs), batch_num)
         init_pred_global[0]['cls'] = [init_pred_global[0]['cls'][i][1:2, :] for i in range(batch_num)]
         init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1, :, :, :] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
-        pred_out = torch.cat([torch.cat(output_pred[0]['reg'], dim=0)[i, :, :, :] for i in range(len(output_pred[0]['reg']))], dim=0)
-        return pred_out
+
+        cls_cat = torch.cat([torch.cat(output_pred[0]['cls'], dim=0)[i:i+1, :] for i in range(len(output_pred[0]['reg']))], dim=0)
+        reg_cat = torch.cat([torch.cat(output_pred[0]['reg'], dim=0)[i:i+1, :, :, :] for i in range(len(output_pred[0]['reg']))], dim=0)
+        pred_out_tensor = torch.zeros(size=[reg_cat.shape[0], 2, reg_cat.shape[1],reg_cat.shape[2],reg_cat.shape[3]], device=reg_cat.device)
+        pred_out_tensor[:, 0, :, 0, 0] = cls_cat
+        pred_out_tensor[:, 1, :, :, :] = reg_cat
+        return pred_out_tensor
 
 
 class EgoReactEncodeNet(nn.Module):
