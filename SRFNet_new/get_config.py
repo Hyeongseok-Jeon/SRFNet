@@ -29,7 +29,7 @@ def get_config(args):
 
     config["batch_size"] = 128
     config["val_batch_size"] = 128
-    config["workers"] = 12
+    config["workers"] = 0
     config["val_workers"] = config["workers"]
 
     """Dataset"""
