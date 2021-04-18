@@ -106,6 +106,7 @@ class GenerateNet(nn.Module):
         actor_idcs_mod = [actors_idcs[i, 0:torch.argmax(actors_idcs[i]) + 1:] for i in range(batch_num)]
         actor_mod = torch.cat([actors[i, :len(actor_idcs_mod[i]), :] for i in range(batch_num)])
         mus_in = torch.cat(mus_enc, dim=1)
+        print(mus_in.shape)
         actor_target = torch.cat([torch.repeat_interleave(actor_mod[int(actor_idcs_mod[i][1]):int(actor_idcs_mod[i][1] + 1)], 6, dim=0) for i in range(len(actor_idcs_mod))], dim=0)
         actor_in = torch.repeat_interleave(actor_target.unsqueeze(dim=0), 4, dim=0)
         out = self.lstm(mus_in, (torch.zeros_like(actor_in), actor_in))[0]
