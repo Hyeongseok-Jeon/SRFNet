@@ -99,6 +99,10 @@ class GenerateNet(nn.Module):
         self.y_gen = nn.Linear(2 * config['n_actor'], 1)
 
     def forward(self, mus_enc, actors, actors_idcs, batch_num):
+        print(len(mus_enc))
+        print(batch_num)
+        print(actors_idcs)
+
         actor_idcs_mod = [actors_idcs[i, 0:torch.argmax(actors_idcs[i]) + 1:] for i in range(batch_num)]
         actor_mod = torch.cat([actors[i, :len(actor_idcs_mod[i]), :] for i in range(batch_num)])
         mus_in = torch.cat(mus_enc, dim=1)
