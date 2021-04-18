@@ -110,7 +110,7 @@ for epoch in range(config["num_epochs"]):
         outputs = model(data[0], data[1], actors, actors_idcs)
         # actors should be tensor
         print(outputs.shape)
-        
+
         batch_num = data[0].shape[0]
         vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
         gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
