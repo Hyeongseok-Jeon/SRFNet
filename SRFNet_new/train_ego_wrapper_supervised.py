@@ -111,7 +111,7 @@ for epoch in range(config["num_epochs"]):
         batch_num = data[0].shape[0]
         vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
         gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
-        gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0) for i in range(len(gt_preds))], dim=0)
+        gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0).unsqueeze(dim=0) for i in range(len(gt_preds))], dim=0)
         print(outputs.shape)
         print(gt.shape)
         loss = l1loss(outputs[:,1,:,:,:], gt)
