@@ -69,12 +69,12 @@ class Net(nn.Module):
         ctrs = [mask[7, 0, : int(vehicle_per_batch[i + 1]), :2, 0, 0] for i in range(batch_num)]
 
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(feats))
-        actor_ctrs = gpu(ctrs)
+        actors, actor_idcs = actor_gather(gpu(feats, config['gpu_id']))
+        actor_ctrs = gpu(ctrs, config['gpu_id'])
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data[2])))
+        graph = graph_gather(to_long(gpu(data[2], config['gpu_id'])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # actor-map fusion cycle 
@@ -770,7 +770,7 @@ class Loss(nn.Module):
         self.pred_loss = PredLoss(config)
 
     def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
+        loss_out = self.pred_loss(out, gpu(data["gt_preds"], config['gpu_id']), gpu(data["has_preds"], config['gpu_id']))
         loss_out["loss"] = loss_out["cls_loss"] / (
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
