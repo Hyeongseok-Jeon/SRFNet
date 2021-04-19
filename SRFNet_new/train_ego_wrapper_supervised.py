@@ -42,7 +42,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="supervised wrapper", type=str
+    "--case", default="supervised wrapper transfer", type=str
 )
 parser.add_argument(
     "--gpu_id", default=0, type=int
