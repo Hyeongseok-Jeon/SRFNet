@@ -59,7 +59,7 @@ def load_pretrain(net, pretrain_dict):
     net.load_state_dict(state_dict)
 
 
-def gpu(data):
+def gpu(data, gpu_id):
     """
     Transfer tensor in `data` to gpu recursively
     `data` can be dict, list or tuple
@@ -69,7 +69,7 @@ def gpu(data):
     elif isinstance(data, dict):
         data = {key:gpu(_data) for key,_data in data.items()}
     elif isinstance(data, torch.Tensor):
-        data = data.contiguous().cuda(non_blocking=True)
+        data = data.contiguous().cuda(gpu_id, non_blocking=True)
     return data
 
 
