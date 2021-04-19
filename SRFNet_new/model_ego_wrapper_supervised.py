@@ -16,7 +16,7 @@ class model_class(nn.Module):
         super(model_class, self).__init__()
         self.config = config
         self.args = args
-        self.base_net = base_net
+        self.base_net = base_net.train()
         self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
 
