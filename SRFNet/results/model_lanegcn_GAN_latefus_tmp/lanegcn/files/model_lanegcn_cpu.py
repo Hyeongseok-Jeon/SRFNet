@@ -12,106 +12,17 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from data import ArgoDataset, collate_fn
-from utils import gpu, to_long,  Optimizer, StepLR
+from SRFNet.utils import gpu, to_long, Optimizer, StepLR, to_float
 
-from layers import Conv1d, Res1d, Linear, LinearRes, Null
-from numpy import float64, ndarray
+from SRFNet.layers import Conv1d, Res1d, Linear, LinearRes, Null, GraphAttentionLayer, GraphAttentionLayer_time_serial, GAT_SRF
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 
-file_path = os.path.abspath(__file__)
-root_path = os.path.dirname(file_path)
-model_name = os.path.basename(file_path).split(".")[0]
-
-### config ###
-config = dict()
-"""Train"""
-config["display_iters"] = 205942
-config["val_iters"] = 205942 * 2
-config["save_freq"] = 1.0
-config["epoch"] = 0
-config["horovod"] = True
-config["opt"] = "adam"
-config["num_epochs"] = 36
-config["lr"] = [1e-3, 1e-4]
-config["lr_epochs"] = [32]
-config["lr_func"] = StepLR(config["lr"], config["lr_epochs"])
-
-
-if "save_dir" not in config:
-    config["save_dir"] = os.path.join(
-        root_path, "results", model_name
-    )
-
-if not os.path.isabs(config["save_dir"]):
-    config["save_dir"] = os.path.join(root_path, "results", config["save_dir"])
-
-config["batch_size"] = 32
-config["val_batch_size"] = 32
-config["workers"] = 0
-config["val_workers"] = config["workers"]
-
-
-"""Dataset"""
-# Raw Dataset
-config["train_split"] = os.path.join(
-    root_path, "dataset/train/data"
-)
-config["val_split"] = os.path.join(root_path, "dataset/val/data")
-config["test_split"] = os.path.join(root_path, "dataset/test_obs/data")
-
-# Preprocessed Dataset
-config["preprocess"] = True # whether use preprocess or not
-config["preprocess_train"] = os.path.join(
-    root_path, "dataset","preprocess", "train_crs_dist6_angle90.p"
-)
-config["preprocess_val"] = os.path.join(
-    root_path,"dataset", "preprocess", "val_crs_dist6_angle90.p"
-)
-config['preprocess_test'] = os.path.join(root_path, "dataset",'preprocess', 'test_test.p')
-
-"""Model"""
-config["rot_aug"] = False
-config["pred_range"] = [-100.0, 100.0, -100.0, 100.0]
-config["num_scales"] = 6
-config["n_actor"] = 128
-config["n_map"] = 128
-config["actor2map_dist"] = 7.0
-config["map2actor_dist"] = 6.0
-config["actor2actor_dist"] = 100.0
-config["pred_size"] = 30
-config["pred_step"] = 1
-config["num_preds"] = config["pred_size"] // config["pred_step"]
-config["num_mods"] = 6
-config["cls_coef"] = 1.0
-config["reg_coef"] = 1.0
-config["mgn"] = 0.2
-config["cls_th"] = 2.0
-config["cls_ignore"] = 0.2
 ### end of config ###
 
-class Net(nn.Module):
-    """
-    Lane Graph Network contains following components:
-        1. ActorNet: a 1D CNN to process the trajectory input
-        2. MapNet: LaneGraphCNN to learn structured map representations 
-           from vectorized map data
-        3. Actor-Map Fusion Cycle: fuse the information between actor nodes 
-           and lane nodes:
-            a. A2M: introduces real-time traffic information to 
-                lane nodes, such as blockage or usage of the lanes
-            b. M2M:  updates lane node features by propagating the 
-                traffic information over lane graphs
-            c. M2A: fuses updated map features with real-time traffic 
-                information back to actors
-            d. A2A: handles the interaction between actors and produces
-                the output actor features
-        4. PredNet: prediction header for motion forecasting using 
-           feature from A2A
-    """
+class lanegcn(nn.Module):
     def __init__(self, config):
-        super(Net, self).__init__()
+        super(lanegcn, self).__init__()
         self.config = config
 
         self.actor_net = ActorNet(config)
@@ -121,35 +32,44 @@ class Net(nn.Module):
         self.m2m = M2M(config)
         self.m2a = M2A(config)
         self.a2a = A2A(config)
-
         self.pred_net = PredNet(config)
 
     def forward(self, data: Dict) -> Dict[str, List[Tensor]]:
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(data["feats"]))
-        actor_ctrs = gpu(data["ctrs"])
+        actors, actor_idcs, _ = actor_gather([data['feats'][i] for i in range(len(data['feats']))])
+        actor_ctrs = [data['ctrs'][i] for i in range(len(data['ctrs']))]
+
+        '''
+        actors : N x 3 x 20 (N : number of vehicles in every batches)
+        '''
+
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data["graph"])))
+        graph = graph_gather(to_long(data["graph"]))
+        '''
+        graph['idcs'] : list with length or batch size, graph['idcs'][i]
+        '''
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
-        # actor-map fusion cycle 
+        # actor-map fusion cycle
         nodes = self.a2m(nodes, graph, actors, actor_idcs, actor_ctrs)
         nodes = self.m2m(nodes, graph)
         actors = self.m2a(actors, actor_idcs, actor_ctrs, nodes, node_idcs, node_ctrs)
         actors = self.a2a(actors, actor_idcs, actor_ctrs)
 
         # prediction
+        '''
+        actors : N x 128 (N : number of vehicles in every batches)
+        '''
         out = self.pred_net(actors, actor_idcs, actor_ctrs)
-        rot, orig = gpu(data["rot"]), gpu(data["orig"])
+        rot, orig = [data['rot'][i] for i in range(len(data['rot']))], [data['orig'][i] for i in range(len(data['orig']))]
         # transform prediction to world coordinates
         for i in range(len(out["reg"])):
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(
                 1, 1, 1, -1
             )
-        return out
-
+        return [out]
 
 
 def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
@@ -159,13 +79,25 @@ def actor_gather(actors: List[Tensor]) -> Tuple[Tensor, List[Tensor]]:
     actors = [x.transpose(1, 2) for x in actors]
     actors = torch.cat(actors, 0)
 
+    mask = torch.zeros_like(actors)
+    actors_inter_cat = []
+    for i in range(5):
+        if i == 0:
+            element = mask.clone()
+            element[:, :, -1] = actors[:, :, 0]
+            actors_inter_cat.append(element)
+        else:
+            element = mask.clone()
+            element[:, :, -5 * i:] = actors[:, :, :5 * i]
+            actors_inter_cat.append(element)
+
     actor_idcs = []
     count = 0
     for i in range(batch_size):
         idcs = torch.arange(count, count + num_actors[i]).to(actors.device)
         actor_idcs.append(idcs)
         count += num_actors[i]
-    return actors, actor_idcs
+    return actors, actor_idcs, actors_inter_cat
 
 
 def graph_gather(graphs):
@@ -175,9 +107,7 @@ def graph_gather(graphs):
     counts = []
     for i in range(batch_size):
         counts.append(count)
-        idcs = torch.arange(count, count + graphs[i]["num_nodes"]).to(
-            graphs[i]["feats"].device
-        )
+        idcs = torch.arange(count, count + graphs[i]["num_nodes"])
         node_idcs.append(idcs)
         count = count + graphs[i]["num_nodes"]
 
@@ -193,19 +123,15 @@ def graph_gather(graphs):
         for i in range(len(graphs[0]["pre"])):
             graph[k1].append(dict())
             for k2 in ["u", "v"]:
-                graph[k1][i][k2] = torch.cat(
-                    [graphs[j][k1][i][k2] + counts[j] for j in range(batch_size)], 0
-                )
+                graph[k1][i][k2] = torch.cat([graphs[j][k1][i][k2] + counts[j] for j in range(batch_size)], 0)
 
     for k1 in ["left", "right"]:
         graph[k1] = dict()
         for k2 in ["u", "v"]:
             temp = [graphs[i][k1][k2] + counts[i] for i in range(batch_size)]
-            temp = [
-                x if x.dim() > 0 else graph["pre"][0]["u"].new().resize_(0)
-                for x in temp
-            ]
+            temp = [x if x.dim() > 0 else graph["pre"][0]["u"].new().resize_(0) for x in temp]
             graph[k1][k2] = torch.cat(temp)
+
     return graph
 
 
@@ -213,6 +139,7 @@ class ActorNet(nn.Module):
     """
     Actor feature extractor with Conv1D
     """
+
     def __init__(self, config):
         super(ActorNet, self).__init__()
         self.config = config
@@ -263,10 +190,136 @@ class ActorNet(nn.Module):
         return out
 
 
+class ReactNet(nn.Module):
+    def __init__(self, config):
+        super(ReactNet, self).__init__()
+        self.config = config
+        self.relu = nn.ReLU()
+
+        n_out = [256, 256, 256, 256]
+        blocks = [nn.Linear, nn.Linear, nn.Linear]
+
+        groups = []
+        for i in range(len(blocks)):
+            group = blocks[i](n_out[i], n_out[i + 1])
+            groups.append(group)
+
+        self.inter_pred = nn.ModuleList(groups)
+
+        in_channel = [4, 8, 16, 32, 64]
+        out_channel = [8, 16, 32, 64, 128]
+        kernel_size = [4, 4, 4, 2, 2]
+        stride = [4, 4, 4, 2, 2]
+        padding = 0
+        dilation = 1
+        conv1d = []
+        for i in range(len(in_channel)):
+            net = nn.Conv1d(in_channels=in_channel[i],
+                            out_channels=out_channel[i],
+                            kernel_size=kernel_size[i],
+                            stride=stride[i],
+                            padding=padding,
+                            dilation=dilation)
+            conv1d.append(net)
+            conv1d.append(nn.ReLU6())
+        self.conv1d = nn.Sequential(*conv1d)
+        self.conv1d_out = nn.Linear(128, 128)
+
+    def forward(self, actors_target, actors_ego):
+        cat = torch.cat([actors_target, actors_ego], dim=1)
+        cat_tot = [cat.unsqueeze(dim=1)]
+        for i in range(len(self.inter_pred)):
+            cat = self.inter_pred[i](cat)
+            cat = self.relu(cat)
+            cat_tot.append(cat.unsqueeze(dim=1))
+        cat_tot = torch.cat(cat_tot, dim=1)
+
+        pred_inter = self.conv1d_out(self.conv1d(cat_tot).squeeze())
+
+        return pred_inter
+
+
+class GateNet(nn.Module):
+    def __init__(self, config):
+        super(GateNet, self).__init__()
+        self.config = config
+        self.relu = nn.ReLU()
+
+        in_channel = [3, 9, 27, 81]
+        out_channel = [9, 27, 81, 128]
+        kernel_size = [2, 2, 2, 2, 2]
+        stride = [2, 2, 2, 2, 2]
+        padding = 0
+        dilation = 1
+
+        conv1d = []
+        for i in range(len(in_channel)):
+            net = nn.Conv1d(in_channels=in_channel[i],
+                            out_channels=out_channel[i],
+                            kernel_size=kernel_size[i],
+                            stride=stride[i],
+                            padding=padding,
+                            dilation=dilation)
+            conv1d.append(net)
+            if i < len(in_channel):
+                conv1d.append(nn.ReLU6())
+            else:
+                conv1d.append(nn.Sigmoid())
+        self.gate = nn.Sequential(*conv1d)
+
+    def forward(self, cl_cands_target, ego_fut_traj, target_cur_pos, maneuver_target):
+        batch_num = len(cl_cands_target)
+        gating = []
+        for i in range(batch_num):
+            target_cl = cl_cands_target[i]
+            target_cl = self.cl_filter(target_cl)
+            ego_fut = ego_fut_traj[i]
+            dist_mat = [torch.cdist(ego_fut, target_cl[j]) for j in range(len(target_cl))]
+            dist_to_target_cl = [torch.min(dist_mat[j]) for j in range(len(target_cl))]
+            if min(dist_to_target_cl) > self.config["inter_dist_thres"]:
+                gating_tmp = torch.cat([torch.zeros(1, 128), torch.ones(1, 128)], dim=0).unsqueeze(dim=0)
+                gating.append(gating_tmp)
+            else:
+                dist_to = torch.cat([torch.min(dist_mat[j], dim=1)[0].unsqueeze(dim=0).unsqueeze(dim=0) for j in range(len(target_cl))], dim=0)
+                delta_x = torch.repeat_interleave((ego_fut[:, 0] - target_cur_pos[i][0]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                delta_y = torch.repeat_interleave((ego_fut[:, 1] - target_cur_pos[i][1]).unsqueeze(dim=0).unsqueeze(dim=0), len(target_cl), dim=0)
+                gating_in = torch.cat([delta_x, delta_y, dist_to], dim=1)
+                gating_out = self.gate(gating_in).squeeze(dim=-1)
+                gating_tmp = torch.cat([gating_out[j:j + 1, :] * maneuver_target[i][j] for j in range(gating_out.shape[0])], dim=0)
+                gating_tmp = torch.sum(gating_tmp, dim=0).unsqueeze(dim=0)
+                gating_tmp = torch.cat([gating_tmp, torch.ones_like(gating_tmp) - gating_tmp]).unsqueeze(dim=0)
+                gating.append(gating_tmp)
+        gating = torch.cat(gating, dim=0)
+        return gating
+
+    def cl_filter(self, target_cl):
+        val_idx = []
+        for i in range(len(target_cl)):
+            if i == 0:
+                val_idx.append(i)
+            else:
+                val_check = []
+                for j in val_idx:
+                    val_len = min(target_cl[i].shape[0], target_cl[j].shape[0], 50)
+                    val_check.append((target_cl[i][:val_len, :] == target_cl[j][:val_len, :]).all().unsqueeze(dim=0))
+                val_check = torch.cat(val_check, dim=0)
+                if val_check.any():
+                    pass
+                else:
+                    val_idx.append(i)
+        return [target_cl[i] for i in val_idx]
+
+
+'''         
+late fusion 방식일 경우에는 delta x, y를 prediction 결과에 대해서 진행
+mid fusion 방식일 경우에는 delta x, y에 대해서 cur_pos에 대해서 진행
+'''
+
 class MapNet(nn.Module):
     """
     Map Graph feature extractor with LaneGraphCNN
     """
+
     def __init__(self, config):
         super(MapNet, self).__init__()
         self.config = config
@@ -309,17 +362,17 @@ class MapNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, graph):
-        if (
-            len(graph["feats"]) == 0
-            or len(graph["pre"][-1]["u"]) == 0
-            or len(graph["suc"][-1]["u"]) == 0
-        ):
-            temp = graph["feats"]
-            return (
-                temp.new().resize_(0),
-                [temp.new().long().resize_(0) for x in graph["node_idcs"]],
-                temp.new().resize_(0),
-            )
+        # if (
+        #         len(graph["feats"]) == 0
+        #         or len(graph["pre"][-1]["u"]) == 0
+        #         or len(graph["suc"][-1]["u"]) == 0
+        # ):
+        #     temp = graph["feats"]
+        #     return (
+        #         temp.new().resize_(0),
+        #         [temp.new().long().resize_(0) for x in graph["node_idcs"]],
+        #         temp.new().resize_(0),
+        #     )
 
         ctrs = torch.cat(graph["ctrs"], 0)
         feat = self.input(ctrs)
@@ -336,21 +389,21 @@ class MapNet(nn.Module):
                     k2 = int(key[3:])
                     temp.index_add_(
                         0,
-                        graph[k1][k2]["u"],
-                        self.fuse[key][i](feat[graph[k1][k2]["v"]]),
+                        graph[k1][k2]["u"].type(torch.int64),
+                        self.fuse[key][i](feat[to_long(graph[k1][k2]["v"])]),
                     )
 
             if len(graph["left"]["u"] > 0):
                 temp.index_add_(
                     0,
-                    graph["left"]["u"],
-                    self.fuse["left"][i](feat[graph["left"]["v"]]),
+                    graph["left"]["u"].type(torch.int64),
+                    self.fuse["left"][i](feat[to_long(graph["left"]["v"])]),
                 )
             if len(graph["right"]["u"] > 0):
                 temp.index_add_(
                     0,
-                    graph["right"]["u"],
-                    self.fuse["right"][i](feat[graph["right"]["v"]]),
+                    graph["right"]["u"].type(torch.int64),
+                    self.fuse["right"][i](feat[to_long(graph["right"]["v"])]),
                 )
 
             feat = self.fuse["norm"][i](temp)
@@ -368,6 +421,7 @@ class A2M(nn.Module):
     Actor to Map Fusion:  fuses real-time traffic information from
     actor nodes to lane nodes
     """
+
     def __init__(self, config):
         super(A2M, self).__init__()
         self.config = config
@@ -412,6 +466,7 @@ class M2M(nn.Module):
     The lane to lane block: propagates information over lane
             graphs and updates the features of lane nodes
     """
+
     def __init__(self, config):
         super(M2M, self).__init__()
         self.config = config
@@ -453,21 +508,21 @@ class M2M(nn.Module):
                     k2 = int(key[3:])
                     temp.index_add_(
                         0,
-                        graph[k1][k2]["u"],
-                        self.fuse[key][i](feat[graph[k1][k2]["v"]]),
+                        graph[k1][k2]["u"].type(torch.int64),
+                        self.fuse[key][i](feat[to_long(graph[k1][k2]["v"])]),
                     )
 
             if len(graph["left"]["u"] > 0):
                 temp.index_add_(
                     0,
-                    graph["left"]["u"],
-                    self.fuse["left"][i](feat[graph["left"]["v"]]),
+                    graph["left"]["u"].type(torch.int64),
+                    self.fuse["left"][i](feat[to_long(graph["left"]["v"])]),
                 )
             if len(graph["right"]["u"] > 0):
                 temp.index_add_(
                     0,
-                    graph["right"]["u"],
-                    self.fuse["right"][i](feat[graph["right"]["v"]]),
+                    graph["right"]["u"].type(torch.int64),
+                    self.fuse["right"][i](feat[to_long(graph["right"]["v"])]),
                 )
 
             feat = self.fuse["norm"][i](temp)
@@ -485,6 +540,7 @@ class M2A(nn.Module):
     The lane to actor block fuses updated
         map information from lane nodes to actor nodes
     """
+
     def __init__(self, config):
         super(M2A, self).__init__()
         self.config = config
@@ -517,6 +573,7 @@ class A2A(nn.Module):
     """
     The actor to actor block performs interactions among actors.
     """
+
     def __init__(self, config):
         super(A2A, self).__init__()
         self.config = config
@@ -545,37 +602,11 @@ class A2A(nn.Module):
         return actors
 
 
-class EncodeDist(nn.Module):
-    def __init__(self, n, linear=True):
-        super(EncodeDist, self).__init__()
-        norm = "GN"
-        ng = 1
-
-        block = [nn.Linear(2, n), nn.ReLU(inplace=True)]
-
-        if linear:
-            block.append(nn.Linear(n, n))
-
-        self.block = nn.Sequential(*block)
-
-    def forward(self, dist):
-        x, y = dist[:, :1], dist[:, 1:]
-        dist = torch.cat(
-            (
-                torch.sign(x) * torch.log(torch.abs(x) + 1.0),
-                torch.sign(y) * torch.log(torch.abs(y) + 1.0),
-            ),
-            1,
-        )
-
-        dist = self.block(dist)
-        return dist
-
-
 class PredNet(nn.Module):
     """
     Final motion forecasting with Linear Residual block
     """
+
     def __init__(self, config):
         super(PredNet, self).__init__()
         self.config = config
@@ -636,6 +667,7 @@ class Att(nn.Module):
     Attention block to pass context nodes information to target nodes
     This is used in Actor2Map, Actor2Actor, Map2Actor and Map2Map
     """
+
     def __init__(self, n_agt: int, n_ctx: int) -> None:
         super(Att, self).__init__()
         norm = "GN"
@@ -737,177 +769,7 @@ class AttDest(nn.Module):
         return agts
 
 
-class PredLoss(nn.Module):
-    def __init__(self, config):
-        super(PredLoss, self).__init__()
-        self.config = config
-        self.reg_loss = nn.SmoothL1Loss(reduction="sum")
+def get_model(config):
+    net = lanegcn(config)
 
-    def forward(self, out: Dict[str, List[Tensor]], gt_preds: List[Tensor], has_preds: List[Tensor]) -> Dict[str, Union[Tensor, int]]:
-        cls, reg = out["cls"], out["reg"]
-        cls = torch.cat([x for x in cls], 0)
-        reg = torch.cat([x for x in reg], 0)
-        gt_preds = torch.cat([x for x in gt_preds], 0)
-        has_preds = torch.cat([x for x in has_preds], 0)
-
-        loss_out = dict()
-        zero = 0.0 * (cls.sum() + reg.sum())
-        loss_out["cls_loss"] = zero.clone()
-        loss_out["num_cls"] = 0
-        loss_out["reg_loss"] = zero.clone()
-        loss_out["num_reg"] = 0
-
-        num_mods, num_preds = self.config["num_mods"], self.config["num_preds"]
-        # assert(has_preds.all())
-
-        last = has_preds.float() + 0.1 * torch.arange(num_preds).float().to(
-            has_preds.device
-        ) / float(num_preds)
-        max_last, last_idcs = last.max(1)
-        mask = max_last > 1.0
-
-        cls = cls[mask]
-        reg = reg[mask]
-        gt_preds = gt_preds[mask]
-        has_preds = has_preds[mask]
-        last_idcs = last_idcs[mask]
-
-        row_idcs = torch.arange(len(last_idcs)).long().to(last_idcs.device)
-        dist = []
-        for j in range(num_mods):
-            dist.append(
-                torch.sqrt(
-                    (
-                        (reg[row_idcs, j, last_idcs] - gt_preds[row_idcs, last_idcs])
-                        ** 2
-                    ).sum(1)
-                )
-            )
-        dist = torch.cat([x.unsqueeze(1) for x in dist], 1)
-        min_dist, min_idcs = dist.min(1)
-        row_idcs = torch.arange(len(min_idcs)).long().to(min_idcs.device)
-
-        mgn = cls[row_idcs, min_idcs].unsqueeze(1) - cls
-        mask0 = (min_dist < self.config["cls_th"]).view(-1, 1)
-        mask1 = dist - min_dist.view(-1, 1) > self.config["cls_ignore"]
-        mgn = mgn[mask0 * mask1]
-        mask = mgn < self.config["mgn"]
-        coef = self.config["cls_coef"]
-        loss_out["cls_loss"] += coef * (
-            self.config["mgn"] * mask.sum() - mgn[mask].sum()
-        )
-        loss_out["num_cls"] += mask.sum().item()
-
-        reg = reg[row_idcs, min_idcs]
-        coef = self.config["reg_coef"]
-        loss_out["reg_loss"] += coef * self.reg_loss(
-            reg[has_preds], gt_preds[has_preds]
-        )
-        loss_out["num_reg"] += has_preds.sum().item()
-        return loss_out
-
-
-class Loss(nn.Module):
-    def __init__(self, config):
-        super(Loss, self).__init__()
-        self.config = config
-        self.pred_loss = PredLoss(config)
-
-    def forward(self, out: Dict, data: Dict) -> Dict:
-        loss_out = self.pred_loss(out, gpu(data["gt_preds"]), gpu(data["has_preds"]))
-        loss_out["loss"] = loss_out["cls_loss"] / (
-            loss_out["num_cls"] + 1e-10
-        ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
-        return loss_out
-
-
-class PostProcess(nn.Module):
-    def __init__(self, config):
-        super(PostProcess, self).__init__()
-        self.config = config
-
-    def forward(self, out,data):
-        post_out = dict()
-        post_out["preds"] = [x[0:1].detach().cpu().numpy() for x in out["reg"]]
-        post_out["gt_preds"] = [x[0:1].numpy() for x in data["gt_preds"]]
-        post_out["has_preds"] = [x[0:1].numpy() for x in data["has_preds"]]
-        return post_out
-
-    def append(self, metrics: Dict, loss_out: Dict, post_out: Optional[Dict[str, List[ndarray]]]=None) -> Dict:
-        if len(metrics.keys()) == 0:
-            for key in loss_out:
-                if key != "loss":
-                    metrics[key] = 0.0
-
-            for key in post_out:
-                metrics[key] = []
-
-        for key in loss_out:
-            if key == "loss":
-                continue
-            if isinstance(loss_out[key], torch.Tensor):
-                metrics[key] += loss_out[key].item()
-            else:
-                metrics[key] += loss_out[key]
-
-        for key in post_out:
-            metrics[key] += post_out[key]
-        return metrics
-
-    def display(self, metrics, dt, epoch, lr=None):
-        """Every display-iters print training/val information"""
-        if lr is not None:
-            print("Epoch %3.3f, lr %.5f, time %3.2f" % (epoch, lr, dt))
-        else:
-            print(
-                "************************* Validation, time %3.2f *************************"
-                % dt
-            )
-
-        cls = metrics["cls_loss"] / (metrics["num_cls"] + 1e-10)
-        reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
-        loss = cls + reg
-
-        preds = np.concatenate(metrics["preds"], 0)
-        gt_preds = np.concatenate(metrics["gt_preds"], 0)
-        has_preds = np.concatenate(metrics["has_preds"], 0)
-        ade1, fde1, ade, fde, min_idcs = pred_metrics(preds, gt_preds, has_preds)
-
-        print(
-            "loss %2.4f %2.4f %2.4f, ade1 %2.4f, fde1 %2.4f, ade %2.4f, fde %2.4f"
-            % (loss, cls, reg, ade1, fde1, ade, fde)
-        )
-        print()
-
-
-def pred_metrics(preds, gt_preds, has_preds):
-    assert has_preds.all()
-    preds = np.asarray(preds, np.float32)
-    gt_preds = np.asarray(gt_preds, np.float32)
-
-    """batch_size x num_mods x num_preds"""
-    err = np.sqrt(((preds - np.expand_dims(gt_preds, 1)) ** 2).sum(3))
-
-    ade1 = err[:, 0].mean()
-    fde1 = err[:, 0, -1].mean()
-
-    min_idcs = err[:, :, -1].argmin(1)
-    row_idcs = np.arange(len(min_idcs)).astype(np.int64)
-    err = err[row_idcs, min_idcs]
-    ade = err.mean()
-    fde = err[:, -1].mean()
-    return ade1, fde1, ade, fde, min_idcs
-
-
-def get_model():
-    net = Net(config)
-    net = net.cuda()
-
-    loss = Loss(config).cuda()
-    post_process = PostProcess(config).cuda()
-
-    params = net.parameters()
-    opt = Optimizer(params, config)
-
-
-    return config, ArgoDataset, collate_fn, net, loss, post_process, opt
+    return net

@@ -1,17 +1,17 @@
 import torch.nn as nn
-import SRFNet_new.model_ego_wrapper_supervised as model
-from SRFNet_new.model_ego_wrapper_supervised import Loss, PostProcess
-from SRFNet_new.get_config import get_config
+import model_ego_wrapper_supervised as model
+from model_ego_wrapper_supervised import Loss, PostProcess
+from get_config import get_config
 import argparse
-from SRFNet_new.SRF_data_loader import SRF_data_loader, collate_fn
+from SRF_data_loader import SRF_data_loader, collate_fn
 from torch.utils.data import DataLoader
-from SRFNet_new.baselines.LaneGCN import lanegcn
+from baselines.LaneGCN import lanegcn
 import torch
 import os
 import time
 from tqdm import tqdm
 import sys
-from SRFNet_new.utils import Logger, load_pretrain
+from utils import Logger, load_pretrain
 import shutil
 
 
@@ -86,8 +86,8 @@ val_loader = DataLoader(
     collate_fn=collate_fn,
 )
 l1loss = nn.SmoothL1Loss().cuda()
-loss_logging = Loss(config).cuda()
-post_process = PostProcess(config).cuda()
+loss_logging = Loss(config)
+post_process = PostProcess(config)
 os.makedirs(config['save_dir'], exist_ok=True)
 
 log = os.path.join(config['save_dir'], "log")
@@ -109,70 +109,64 @@ start_time = time.time()
 for epoch in range(config["num_epochs"]):
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader)):
-        print(time.time()-start_time)
-        with torch.no_grad():
-            actors, actors_idcs = base_net(data)
-        print(time.time() - start_time)
-        actors = data[0][:,13]
-        outputs = pred_model(data[0], data[1], actors, actors_idcs)
-        print(time.time()-start_time)
+        actors = data[0][:, 12, :, :32, :4, 0]
+        actors = actors.reshape(actors.shape[0], actors.shape[1], -1)
+        actors_idcs = data[0][:, 13, :, 0, 0, 0]
+        outputs = pred_model(data[0][:, : 12], data[1], actors, actors_idcs)
 
         batch_num = data[0].shape[0]
         vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
         gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
         gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0).unsqueeze(dim=0) for i in range(len(gt_preds))], dim=0)
-        loss = l1loss(outputs[:,1,:,:,:].cpu(), gt)
+        loss = l1loss(outputs[:, 1, :, :, :].cpu(), gt)
 
         # actors should be tensor
         output_reform = dict()
-        cls = [outputs[i:i+1, 0, :, 0, 0] for i in range(outputs.shape[0])]
-        reg = [outputs[i:i+1, 1, :, :, :] for i in range(outputs.shape[0])]
+        output_eval = dict()
+        cls = [outputs[i:i + 1, 0, :, 0, 0] for i in range(outputs.shape[0])]
+        reg = [outputs[i:i + 1, 1, :, :, :] for i in range(outputs.shape[0])]
+        cls_eval = [outputs[i:i + 1, 0, :, 0, 0].cpu().detach() for i in range(outputs.shape[0])]
+        reg_eval = [outputs[i:i + 1, 1, :, :, :].cpu().detach() for i in range(outputs.shape[0])]
         output_reform['cls'] = cls
         output_reform['reg'] = reg
+        output_eval['cls'] = cls_eval
+        output_eval['reg'] = reg_eval
         output_reform = [output_reform]
+        output_eval = [output_eval]
 
         if i == 0 and epoch == 0:
-            loss_out = loss_logging(output_reform[0], data)
-            post_out = post_process(output_reform[0], data)
+            loss_out = loss_logging(output_eval[0], data)
+            post_out = post_process(output_eval[0], data)
             post_process.append(metrics, loss_out, post_out)
             dt = time.time() - start_time
             post_process.display(metrics, dt, epoch, 0.001)
-        print(time.time()-start_time)
 
         opt.zero_grad()
         loss.backward()
         opt.step(epoch)
-        print(time.time()-start_time)
 
-        loss_out = loss_logging(output_reform[0], data)
-        post_out = post_process(output_reform[0], data)
+        loss_out = loss_logging(output_eval[0], data)
+        post_out = post_process(output_eval[0], data)
         post_process.append(metrics, loss_out, post_out)
-        start_time = time.time()
 
     if epoch % 2 == 1:
         metrics = dict()
         for i, data in tqdm(enumerate(val_loader)):
             with torch.no_grad():
-                actors, actors_idcs = base_net(data)
-                outputs = pred_model(data[0], data[1], actors, actors_idcs)
-                batch_num = data[0].shape[0]
-                vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
-                gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
-                gt = torch.cat([torch.repeat_interleave(gt_preds[i][1:2, :, :], 6, dim=0).unsqueeze(dim=0) for i in range(len(gt_preds))], dim=0)
-                loss = l1loss(outputs[:, 1, :, :, :].cpu(), gt)
+                actors = data[0][:, 12, :, :32, :4, 0]
+                actors = actors.reshape(actors.shape[0], actors.shape[1], -1)
+                actors_idcs = data[0][:, 13, :, 0, 0, 0]
+                outputs = pred_model(data[0][:, : 12], data[1], actors, actors_idcs)
 
-                loss_out = loss_logging(outputs[0], data)
-                post_out = post_process(outputs[0], data)
-                outputs = model(data[0], data[1], actors, actors_idcs)
-                output_reform = dict()
-                cls = [outputs[i:i+1, 0, :, 0, 0] for i in range(outputs.shape[0])]
-                reg = [outputs[i:i+1, 1, :, :, :] for i in range(outputs.shape[0])]
-                output_reform['cls'] = cls
-                output_reform['reg'] = reg
-                output_reform = [output_reform]
-                
-                loss_out = loss_logging(output_reform[0], data)
-                post_out = post_process(output_reform[0], data)
+                output_eval = dict()
+                cls_eval = [outputs[i:i + 1, 0, :, 0, 0].cpu().detach() for i in range(outputs.shape[0])]
+                reg_eval = [outputs[i:i + 1, 1, :, :, :].cpu().detach() for i in range(outputs.shape[0])]
+                output_eval['cls'] = cls_eval
+                output_eval['reg'] = reg_eval
+                output_eval = [output_eval]
+
+                loss_out = loss_logging(output_eval[0], data)
+                post_out = post_process(output_eval[0], data)
                 post_process.append(metrics, loss_out, post_out)
         dt = time.time() - start_time
         post_process.display(metrics, dt, epoch, 0.001)
@@ -183,5 +177,5 @@ for epoch in range(config["num_epochs"]):
     post_process.display(metrics, dt, epoch, 0.001)
     start_time = time.time()
     metrics = dict()
-    
+
 time.sleep(10)

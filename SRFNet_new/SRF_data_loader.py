@@ -22,7 +22,7 @@ class SRF_data_loader(torch.utils.data.Dataset):
 
 def collate_fn(batch):
     max_len = max([batch[i][0].shape[2] for i in range(len(batch))])
-    mask = torch.zeros(size=[len(batch), 12, max_len, 50, 30, 2])
+    mask = torch.zeros(size=[len(batch), 14, max_len, 50, 30, 2])
     for i in range(len(batch)):
         mask[i, :, :batch[i][0].shape[2], :, :, :] = batch[i][0]
 

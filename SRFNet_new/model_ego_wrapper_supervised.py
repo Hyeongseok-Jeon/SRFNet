@@ -4,9 +4,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.autograd import Variable
-from SRFNet_new.utils import gpu, to_long, Optimizer, StepLR, to_float
+from utils import gpu, to_long, Optimizer, StepLR, to_float
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+import time
 
 
 ### end of config ###
@@ -77,9 +78,9 @@ class model_class(nn.Module):
         init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1, :, :, :] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
 
-        cls_cat = torch.cat([torch.cat(output_pred[0]['cls'], dim=0)[i:i+1, :] for i in range(len(output_pred[0]['reg']))], dim=0)
-        reg_cat = torch.cat([torch.cat(output_pred[0]['reg'], dim=0)[i:i+1, :, :, :] for i in range(len(output_pred[0]['reg']))], dim=0)
-        pred_out_tensor = torch.zeros(size=[reg_cat.shape[0], 2, reg_cat.shape[1],reg_cat.shape[2],reg_cat.shape[3]], device=reg_cat.device)
+        cls_cat = torch.cat([torch.cat(output_pred[0]['cls'], dim=0)[i:i + 1, :] for i in range(len(output_pred[0]['reg']))], dim=0)
+        reg_cat = torch.cat([torch.cat(output_pred[0]['reg'], dim=0)[i:i + 1, :, :, :] for i in range(len(output_pred[0]['reg']))], dim=0)
+        pred_out_tensor = torch.zeros(size=[reg_cat.shape[0], 2, reg_cat.shape[1], reg_cat.shape[2], reg_cat.shape[3]], device=reg_cat.device)
         pred_out_tensor[:, 0, :, 0, 0] = cls_cat
         pred_out_tensor[:, 1, :, :, :] = reg_cat
         return pred_out_tensor
@@ -124,7 +125,7 @@ class GenerateNet(nn.Module):
         self.y_gen = nn.Linear(2 * config['n_actor'], 1)
 
     def forward(self, mus_enc, actors, actors_idcs, batch_num):
-        actor_idcs_mod = [actors_idcs[i, :torch.argmax(actors_idcs[i]) + 1]-actors_idcs[i,0] for i in range(batch_num)]
+        actor_idcs_mod = [actors_idcs[i, :torch.argmax(actors_idcs[i]) + 1] - actors_idcs[i, 0] for i in range(batch_num)]
         actor_mod = torch.cat([actors[i, :len(actor_idcs_mod[i]), :] for i in range(batch_num)])
         mus_in = torch.cat(mus_enc, dim=1)
         actor_target = torch.cat([torch.repeat_interleave(actor_mod[int(actor_idcs_mod[i][1]):int(actor_idcs_mod[i][1] + 1)], 6, dim=0) for i in range(len(actor_idcs_mod))], dim=0)
@@ -217,65 +218,75 @@ class Loss(nn.Module):
 
     def forward(self, out: Dict, data: Dict) -> Dict:
         batch_num = data[0].shape[0]
-        vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
-        gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
-        has_preds = [data[0][i, 2, :int(vehicle_per_batch[i]), :30, 0, 0].bool() for i in range(batch_num)]
+        data_eval = data[0].numpy()
+        vehicle_per_batch = data_eval[:, 11, 0, 0, 0, 0]
+        gt = []
+        has = []
+        heading = []
+        dist_error = []
+        top_1_idx = []
+        for i in range(batch_num):
+            gt_preds = data_eval[i, 1, :int(vehicle_per_batch[i]), :30, :2, 0]
+            has_preds = data_eval[i, 2, :int(vehicle_per_batch[i]), :30, 0, 0].astype(bool)
+            gt_tmp = gt_preds[1:2, :, :]
+            has_tmp = has_preds[1:2, :]
+            gt.append(torch.from_numpy(gt_tmp))
+            has.append(torch.from_numpy(has_tmp))
+            preds = out['reg'][i][0].detach().numpy()
+            preds_cls = out['cls'][i][0].detach().numpy()
 
-        gt = gpu([gt_preds[i][1:2, :, :] for i in range(len(gt_preds))], self.config['gpu_id'])
-        has = gpu([has_preds[i][1:2, :] for i in range(len(has_preds))], self.config['gpu_id'])
-        preds = [out['reg'][i][0] for i in range(len(gt_preds))]
-        preds_cls = [out['cls'][i][0] for i in range(len(gt_preds))]
+            # gt_preds.append(data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0])
+            # has_preds.append(data[0][i, 2, :int(vehicle_per_batch[i]), :30, 0, 0].bool())
+            # gt.append(gpu(gt_preds[i][1:2, :, :], self.config['gpu_id']))
+            # has.append(gpu(has_preds[i][1:2, :], self.config['gpu_id']))
+            # preds.append(out['reg'][i][0])
+            # preds_cls.append(out['cls'][i][0])
+
+            head = np.zeros_like(gt_tmp[:, :, 0])
+            if np.linalg.norm(gt_tmp[0, 0, :] - gt_tmp[0, -1, :]) > 2:
+                head[0, 0] = np.rad2deg(np.arctan2(gt_tmp[0, 1, 1] - gt_tmp[0, 0, 1], gt_tmp[0, 1, 0] - gt_tmp[0, 0, 0]))
+                head[0, -1] = np.rad2deg(np.arctan2(gt_tmp[0, -1, 1] - gt_tmp[0, -2, 1], gt_tmp[0, -1, 0] - gt_tmp[0, -2, 0]))
+                zero_idx = np.concatenate(
+                    np.where((np.arctan2(gt_tmp[0, 2:, 1] - gt_tmp[0, 1:-1, 1], gt_tmp[0, 2:, 0] - gt_tmp[0, 1:-1, 0])) == 0) + np.where((np.arctan2(gt_tmp[0, 1:-1, 1] - gt_tmp[0, :-2, 1], gt_tmp[0, 1:-1, 0] - gt_tmp[0, 0:-2, 0])) == 0))
+                head_tmp = np.rad2deg(np.arctan2(gt_tmp[0, 2:, 1] - gt_tmp[0, 1:-1, 1], gt_tmp[0, 2:, 0] - gt_tmp[0, 1:-1, 0])) + np.rad2deg(np.arctan2(gt_tmp[0, 1:-1, 1] - gt_tmp[0, :-2, 1], gt_tmp[0, 1:-1, 0] - gt_tmp[0, 0:-2, 0]))
+                head[0, 1:-1] = head_tmp / 2
+                head[0, zero_idx + 1] = head_tmp[zero_idx]
+            heading.append(head)
+
+            gt_for_loss = np.repeat(gt_tmp, 6, axis=0)
+            pred_for_loss = preds
+            dist_error_init = self.pred_loss(torch.from_numpy(gt_for_loss), torch.from_numpy(pred_for_loss))
+            dist_error_init = dist_error_init.numpy()
+            for ii in range(30):
+                rot = np.zeros((2, 2))
+                rot[0, 0] = np.cos(np.deg2rad(-heading[i][0, ii]))
+                rot[0, 1] = -np.sin(np.deg2rad(-heading[i][0, ii]))
+                rot[1, 0] = np.sin(np.deg2rad(-heading[i][0, ii]))
+                rot[1, 1] = np.cos(np.deg2rad(-heading[i][0, ii]))
+                dist_error_init[:, ii, :] = np.matmul(rot, dist_error_init[:, ii, :].T).T
+
+            dist_error.append(np.abs(dist_error_init))
+            top_1_idx.append(np.argmax(preds_cls) + 6 * i)
+
+        dist_error = np.concatenate(dist_error, axis=0)
+        ade6_x_sum = sum([np.min(np.sum(dist_error[6 * i:6 * (i + 1), :, 0], axis=1)) for i in range(batch_num)])
+        ade6_y_sum = sum([np.min(np.sum(dist_error[6 * i:6 * (i + 1), :, 1], axis=1)) for i in range(batch_num)])
+        fde6_x_sum = sum([np.min(dist_error[6 * i:6 * (i + 1), -1, 0]) for i in range(batch_num)])
+        fde6_y_sum = sum([np.min(dist_error[6 * i:6 * (i + 1), -1, 1]) for i in range(batch_num)])
+        ade6_num = batch_num * dist_error.shape[1]
+        fde6_num = batch_num
+
+        ade1_x_sum = np.sum(dist_error[top_1_idx, :, 0])
+        ade1_y_sum = np.sum(dist_error[top_1_idx, :, 1])
+        fde1_x_sum = np.sum(dist_error[top_1_idx, -1, 0])
+        fde1_y_sum = np.sum(dist_error[top_1_idx, -1, 1])
+        ade1_num = len(top_1_idx) * dist_error.shape[1]
+        fde1_num = len(top_1_idx)
 
         loss_out = self.lanegcn_loss(out, gt, has)
         loss_out["loss"] = loss_out["cls_loss"] / (
                 loss_out["num_cls"] + 1e-10
         ) + loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
-
-        heading = []
-        for i in range(len(gt)):
-            head = torch.zeros_like(gt[0][:, :, 0])
-            if torch.norm(gt[i][0, 0, :] - gt[i][0, -1, :]) > 2:
-                head[0, 0] = torch.rad2deg(torch.atan2(gt[i][0, 1, 1] - gt[i][0, 0, 1], gt[i][0, 1, 0] - gt[i][0, 0, 0]))
-                head[0, -1] = torch.rad2deg(torch.atan2(gt[i][0, -1, 1] - gt[i][0, -2, 1], gt[i][0, -1, 0] - gt[i][0, -2, 0]))
-                zero_idx = torch.cat(
-                    torch.where((torch.atan2(gt[i][0, 2:, 1] - gt[i][0, 1:-1, 1], gt[i][0, 2:, 0] - gt[i][0, 1:-1, 0])) == 0) + torch.where((torch.atan2(gt[i][0, 1:-1, 1] - gt[i][0, :-2, 1], gt[i][0, 1:-1, 0] - gt[i][0, 0:-2, 0])) == 0))
-                head_tmp = torch.rad2deg(torch.atan2(gt[i][0, 2:, 1] - gt[i][0, 1:-1, 1], gt[i][0, 2:, 0] - gt[i][0, 1:-1, 0])) + torch.rad2deg(torch.atan2(gt[i][0, 1:-1, 1] - gt[i][0, :-2, 1], gt[i][0, 1:-1, 0] - gt[i][0, 0:-2, 0]))
-                head[0, 1:-1] = head_tmp / 2
-                head[0, zero_idx + 1] = head_tmp[zero_idx]
-            heading.append(head)
-
-        dist_error = []
-        top_1_idx = []
-        for i in range(len(gt)):
-            gt_for_loss = torch.repeat_interleave(gt[i], 6, dim=0)
-            pred_for_loss = preds[i]
-            dist_error_init = self.pred_loss(gt_for_loss, pred_for_loss)
-
-            for ii in range(30):
-                rot = torch.zeros((2, 2)).cuda(self.config['gpu_id'])
-                rot[0, 0] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
-                rot[0, 1] = -torch.sin(torch.deg2rad(-heading[i][0, ii]))
-                rot[1, 0] = torch.sin(torch.deg2rad(-heading[i][0, ii]))
-                rot[1, 1] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
-                dist_error_init[:, ii, :] = torch.matmul(rot, dist_error_init[:, ii, :].T).T
-
-            dist_error.append(torch.abs(dist_error_init))
-            top_1_idx.append(torch.argmax(preds_cls[i]) + 6 * i)
-
-        dist_error = torch.cat(dist_error, dim=0)
-        ade6_x_sum = sum([torch.min(torch.sum(dist_error[6 * i:6 * (i + 1), :, 0], dim=1)) for i in range(batch_num)])
-        ade6_y_sum = sum([torch.min(torch.sum(dist_error[6 * i:6 * (i + 1), :, 1], dim=1)) for i in range(batch_num)])
-        fde6_x_sum = sum([torch.min(dist_error[6 * i:6 * (i + 1), -1, 0]) for i in range(batch_num)])
-        fde6_y_sum = sum([torch.min(dist_error[6 * i:6 * (i + 1), -1, 1]) for i in range(batch_num)])
-        ade6_num = batch_num * dist_error.shape[1]
-        fde6_num = batch_num
-
-        ade1_x_sum = torch.sum(dist_error[top_1_idx, :, 0])
-        ade1_y_sum = torch.sum(dist_error[top_1_idx, :, 1])
-        fde1_x_sum = torch.sum(dist_error[top_1_idx, -1, 0])
-        fde1_y_sum = torch.sum(dist_error[top_1_idx, -1, 1])
-        ade1_num = len(top_1_idx) * dist_error.shape[1]
-        fde1_num = len(top_1_idx)
 
         loss_out["ade6_x_sum"] = ade6_x_sum
         loss_out["ade6_y_sum"] = ade6_y_sum
