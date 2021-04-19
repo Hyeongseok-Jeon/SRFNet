@@ -16,8 +16,8 @@ class model_class(nn.Module):
         self.config = config
         self.args = args
         self.base_net = base_net
-        self.ego_react_encoder = EgoReactEncodeNet(config).cuda()
-        self.generator = GenerateNet(config).cuda()
+        self.ego_react_encoder = EgoReactEncodeNet(config)
+        self.generator = GenerateNet(config)
 
     def forward(self, mask, action_input_tot, actors, actors_idcs):
 
@@ -252,7 +252,7 @@ class Loss(nn.Module):
             dist_error_init = self.pred_loss(gt_for_loss, pred_for_loss)
 
             for ii in range(30):
-                rot = torch.zeros((2, 2), device="cuda")
+                rot = torch.zeros((2, 2)).cuda(self.config['gpu_id'])
                 rot[0, 0] = torch.cos(torch.deg2rad(-heading[i][0, ii]))
                 rot[0, 1] = -torch.sin(torch.deg2rad(-heading[i][0, ii]))
                 rot[1, 0] = torch.sin(torch.deg2rad(-heading[i][0, ii]))
