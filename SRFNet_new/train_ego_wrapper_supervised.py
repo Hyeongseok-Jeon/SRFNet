@@ -51,6 +51,7 @@ parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 config = get_config(args)
+config['gpu_id'] = args.gpu_id
 
 base_net, weight, opt = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
