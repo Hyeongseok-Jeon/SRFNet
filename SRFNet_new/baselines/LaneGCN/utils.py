@@ -64,7 +64,6 @@ def gpu(data, gpu_id):
     Transfer tensor in `data` to gpu recursively
     `data` can be dict, list or tuple
     """
-    print('asdfsadfsadfsadf')
     if isinstance(data, list) or isinstance(data, tuple):
         data = [gpu(x, gpu_id) for x in data]
     elif isinstance(data, dict):
