@@ -549,7 +549,7 @@ parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 
 root_dir = os.getcwd()
-data_dir = os.path.join(root_dir, 'SRFNet_new', 'dataset', 'preprocess_GAN', 'train')
+data_dir = os.path.join(root_dir, 'SRFNet_new', 'dataset', 'preprocess_GAN', 'val')
 list = glob.glob(data_dir + '/*pickle')
 config = get_config(args)
 config['gpu_id'] = args.gpu_id
@@ -577,4 +577,4 @@ for i in range(len(list)):
     data_mod.append(data[2])
     data_mod.append(data[3])
     with open(list[i], 'wb') as f:
-        pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+        pickle.dump(data_mod, f, pickle.HIGHEST_PROTOCOL)

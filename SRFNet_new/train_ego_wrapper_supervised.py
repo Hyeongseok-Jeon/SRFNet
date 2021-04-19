@@ -1,17 +1,17 @@
 import torch.nn as nn
-import model_ego_wrapper_supervised as model
-from model_ego_wrapper_supervised import Loss, PostProcess
-from get_config import get_config
+import SRFNet_new.model_ego_wrapper_supervised as model
+from SRFNet_new.model_ego_wrapper_supervised import Loss, PostProcess
+from SRFNet_new.get_config import get_config
 import argparse
-from SRF_data_loader import SRF_data_loader, collate_fn
+from SRFNet_new.SRF_data_loader import SRF_data_loader, collate_fn
 from torch.utils.data import DataLoader
-from baselines.LaneGCN import lanegcn
+from SRFNet_new.baselines.LaneGCN import lanegcn
 import torch
 import os
 import time
 from tqdm import tqdm
 import sys
-from utils import Logger, load_pretrain
+from SRFNet_new.utils import Logger, load_pretrain
 import shutil
 
 
@@ -113,7 +113,7 @@ for epoch in range(config["num_epochs"]):
         with torch.no_grad():
             actors, actors_idcs = base_net(data)
         print(time.time() - start_time)
-
+        actors = data[0][:,13]
         outputs = pred_model(data[0], data[1], actors, actors_idcs)
         print(time.time()-start_time)
 

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.autograd import Variable
-from utils import gpu, to_long, Optimizer, StepLR, to_float
+from SRFNet_new.utils import gpu, to_long, Optimizer, StepLR, to_float
 from numpy import float64, ndarray
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
