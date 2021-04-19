@@ -1,17 +1,17 @@
 import torch.nn as nn
-import SRFNet_new.model_ego_wrapper_supervised as model
-from SRFNet_new.model_ego_wrapper_supervised import Loss, PostProcess
-from SRFNet_new.get_config import get_config
+import model_ego_wrapper_supervised as model
+from model_ego_wrapper_supervised import Loss, PostProcess
+from get_config import get_config
 import argparse
-from SRFNet_new.SRF_data_loader import SRF_data_loader, collate_fn
+from SRF_data_loader import SRF_data_loader, collate_fn
 from torch.utils.data import DataLoader
-from SRFNet_new.baselines.LaneGCN import lanegcn
+from baselines.LaneGCN import lanegcn
 import torch
 import os
 import time
 from tqdm import tqdm
 import sys
-from SRFNet_new.utils import Logger, load_pretrain
+from utils import Logger, load_pretrain
 import shutil
 
 
@@ -51,16 +51,23 @@ parser.add_argument("--mode", default='client')
 parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 config = get_config(args)
+config['gpu_id'] = args.gpu_id
+device_id = "cuda:" + str(config['gpu_id'])
 
 base_net, weight, _ = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
-pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
+pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt', map_location=device_id)
 pretrained_dict = pre_trained_weight['state_dict']
 base_net.load_state_dict(pretrained_dict)
+base_net = base_net.cuda(config['gpu_id'])
 
 net = model.model_class(config, args, base_net)
+<<<<<<< HEAD
 opt = model.Optimizer(net.parameters(), config)
 pred_model = net.cuda()
+=======
+model = net.cuda(config['gpu_id'])
+>>>>>>> 16d35fe38182dee6174683cc05798ae90ffd566f
 
 dataset = SRF_data_loader(config, train=False)
 train_loader = DataLoader(
@@ -150,6 +157,7 @@ for epoch in range(config["num_epochs"]):
         for i, data in tqdm(enumerate(val_loader)):
             with torch.no_grad():
                 actors, actors_idcs = base_net(data)
+<<<<<<< HEAD
                 outputs = pred_model(data[0], data[1], actors, actors_idcs)
                 batch_num = data[0].shape[0]
                 vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
@@ -159,6 +167,18 @@ for epoch in range(config["num_epochs"]):
 
                 loss_out = loss_logging(outputs[0], data)
                 post_out = post_process(outputs[0], data)
+=======
+                outputs = model(data[0], data[1], actors, actors_idcs)
+                output_reform = dict()
+                cls = [outputs[i:i+1, 0, :, 0, 0] for i in range(outputs.shape[0])]
+                reg = [outputs[i:i+1, 1, :, :, :] for i in range(outputs.shape[0])]
+                output_reform['cls'] = cls
+                output_reform['reg'] = reg
+                output_reform = [output_reform]
+                
+                loss_out = loss_logging(output_reform[0], data)
+                post_out = post_process(output_reform[0], data)
+>>>>>>> 16d35fe38182dee6174683cc05798ae90ffd566f
                 post_process.append(metrics, loss_out, post_out)
         dt = time.time() - start_time
         post_process.display(metrics, dt, epoch, 0.001)
@@ -169,3 +189,5 @@ for epoch in range(config["num_epochs"]):
     post_process.display(metrics, dt, epoch, 0.001)
     start_time = time.time()
     metrics = dict()
+    
+time.sleep(10)
