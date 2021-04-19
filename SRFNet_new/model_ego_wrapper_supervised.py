@@ -32,8 +32,8 @@ class model_class(nn.Module):
         init_pred_global_cls_tot = []
         for i in range(batch_num):
             gt_preds.append(mask[1, i, :int(vehicle_per_batch[i]), :30, :2, 0])
-            ego_fut_traj.append(gpu(gt_preds[i][0:1, :, :]))
-            hid.append(gpu(action_input_tot[i, :, :, :]))
+            ego_fut_traj.append(gpu(gt_preds[i][0:1, :, :], self.config['gpu_id']))
+            hid.append(gpu(action_input_tot[i, :, :, :], self.config['gpu_id']))
             init_pred_global_reg_tot.append(mask[9, i, :int(vehicle_per_batch[i]), :6, :30, :2])
             init_pred_global_cls_tot.append(mask[10, i, :int(vehicle_per_batch[i]), :6, 0, 0])
 
@@ -62,7 +62,7 @@ class model_class(nn.Module):
         # init_pred_global_reg_tot = mask[9, 0, :, :6, :30, :2]
         # init_pred_global_cls_tot = mask[10, 0, :, :6, 0, 0]
 
-        init_pred_global_raw = [gpu(init_pred_global[i]) for i in range(batch_num)]
+        init_pred_global_raw = [gpu(init_pred_global[i], self.config['gpu_id']) for i in range(batch_num)]
         init_pred = dict()
         init_pred['cls'] = []
         init_pred['reg'] = []
@@ -72,7 +72,7 @@ class model_class(nn.Module):
         init_pred_global = [init_pred]
 
         mus_enc, _ = self.ego_react_encoder(ego_fut_traj, hid)
-        delta = self.generator(mus_enc, gpu(actors), gpu(actors_idcs), batch_num)
+        delta = self.generator(mus_enc, gpu(actors, self.config['gpu_id']), gpu(actors_idcs, self.config['gpu_id']), batch_num)
         init_pred_global[0]['cls'] = [init_pred_global[0]['cls'][i][1:2, :] for i in range(batch_num)]
         init_pred_global[0]['reg'] = [init_pred_global[0]['reg'][i][1, :, :, :] + delta[i] for i in range(batch_num)]
         output_pred = init_pred_global
@@ -221,8 +221,8 @@ class Loss(nn.Module):
         gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
         has_preds = [data[0][i, 2, :int(vehicle_per_batch[i]), :30, 0, 0].bool() for i in range(batch_num)]
 
-        gt = gpu([gt_preds[i][1:2, :, :] for i in range(len(gt_preds))])
-        has = gpu([has_preds[i][1:2, :] for i in range(len(has_preds))])
+        gt = gpu([gt_preds[i][1:2, :, :] for i in range(len(gt_preds))], self.config['gpu_id'])
+        has = gpu([has_preds[i][1:2, :] for i in range(len(has_preds))], self.config['gpu_id'])
         preds = [out['reg'][i][0] for i in range(len(gt_preds))]
         preds_cls = [out['cls'][i][0] for i in range(len(gt_preds))]
 
