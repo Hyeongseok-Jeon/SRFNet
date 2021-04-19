@@ -14,3 +14,5 @@ import sys
 from utils import Logger, load_pretrain
 import shutil
 
+for i in range(100):
+  time.sleep(1)
