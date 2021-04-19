@@ -59,7 +59,7 @@ pretrained_dict = pre_trained_weight['state_dict']
 base_net.load_state_dict(pretrained_dict)
 
 net = model.model_class(config, args, base_net)
-model = net.cuda()
+model = net.cuda(args.gpu_id)
 
 dataset = SRF_data_loader(config, train=True)
 train_loader = DataLoader(
