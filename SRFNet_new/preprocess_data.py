@@ -562,7 +562,7 @@ base_net.load_state_dict(pretrained_dict)
 base_net = base_net.cuda()
 for i in range(len(list)):
     data_mod = []
-    print(i)
+    print(list[i])
     with open(list[i], 'rb') as f:
         data = pickle.load(f)
     with torch.no_grad():
