@@ -56,7 +56,7 @@ config['gpu_id'] = args.gpu_id
 
 base_net, weight, opt = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
-pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt', device=config['gpu_id'])
+pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt', map_location=config['gpu_id'])
 pretrained_dict = pre_trained_weight['state_dict']
 base_net.load_state_dict(pretrained_dict)
 base_net = base_net.cuda(config['gpu_id'])
