@@ -20,7 +20,10 @@ class model_class(nn.Module):
         self.ego_react_encoder = EgoReactEncodeNet(config)
         self.generator = GenerateNet(config)
 
-    def forward(self, mask, action_input_tot, actors, actors_idcs):
+    def forward(self, data):
+        actors, actors_idcs = self.base_net(data)
+        mask = data[0][:, :12]
+        action_input_tot = data[1]
 
         mask = torch.transpose(mask, 0, 1)
         batch_num = mask.shape[1]

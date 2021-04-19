@@ -62,7 +62,7 @@ net = model.model_class(config, args, base_net)
 opt = model.Optimizer(net.parameters(), config)
 pred_model = net.cuda(config['gpu_id'])
 
-dataset = SRF_data_loader(config, train=False)
+dataset = SRF_data_loader(config, train=True)
 train_loader = DataLoader(
     dataset,
     batch_size=config["batch_size"],
@@ -105,10 +105,7 @@ start_time = time.time()
 for epoch in range(config["num_epochs"]):
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader)):
-        actors = data[0][:, 12, :, :32, :4, 0]
-        actors = actors.reshape(actors.shape[0], actors.shape[1], -1)
-        actors_idcs = data[0][:, 13, :, 0, 0, 0]
-        outputs = pred_model(data[0][:, : 12], data[1], actors, actors_idcs)
+        outputs = pred_model(data)
 
         batch_num = data[0].shape[0]
         vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
@@ -149,10 +146,7 @@ for epoch in range(config["num_epochs"]):
         metrics = dict()
         for i, data in tqdm(enumerate(val_loader)):
             with torch.no_grad():
-                actors = data[0][:, 12, :, :32, :4, 0]
-                actors = actors.reshape(actors.shape[0], actors.shape[1], -1)
-                actors_idcs = data[0][:, 13, :, 0, 0, 0]
-                outputs = pred_model(data[0][:, : 12], data[1], actors, actors_idcs)
+                outputs = pred_model(data)
 
                 output_eval = dict()
                 cls_eval = [outputs[i:i + 1, 0, :, 0, 0].cpu().detach() for i in range(outputs.shape[0])]
