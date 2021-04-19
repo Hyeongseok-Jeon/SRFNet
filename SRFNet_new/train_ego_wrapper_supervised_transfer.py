@@ -1,6 +1,6 @@
 import torch.nn as nn
-import model_ego_wrapper_supervised as model
-from model_ego_wrapper_supervised import Loss, PostProcess
+import model_ego_wrapper_supervised_transfer as model
+from model_ego_wrapper_supervised_transfer import Loss, PostProcess
 from get_config import get_config
 import argparse
 from SRF_data_loader import SRF_data_loader, collate_fn
@@ -42,7 +42,7 @@ parser.add_argument(
     "--weight", default="", type=str, metavar="WEIGHT", help="checkpoint path"
 )
 parser.add_argument(
-    "--case", default="supervised wrapper", type=str
+    "--case", default="supervised wrapper transfer", type=str
 )
 parser.add_argument(
     "--gpu_id", default=0, type=int
@@ -56,11 +56,15 @@ device_id = "cuda:" + str(config['gpu_id'])
 
 base_net, weight, _ = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
+pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt', map_location=device_id)
+pretrained_dict = pre_trained_weight['state_dict']
+base_net.load_state_dict(pretrained_dict)
 base_net = base_net.cuda(config['gpu_id'])
 
 net = model.model_class(config, args, base_net)
 opt = model.Optimizer(net.parameters(), config)
-pred_model = net.cuda(config['gpu_id'])
+pred_model = net.cuda()
+model = net.cuda(config['gpu_id'])
 
 dataset = SRF_data_loader(config, train=False)
 train_loader = DataLoader(
