@@ -552,6 +552,7 @@ root_dir = os.getcwd()
 data_dir = os.path.join(root_dir, 'SRFNet_new', 'dataset', 'preprocess_GAN', 'val')
 list = glob.glob(data_dir + '/*pickle')
 config = get_config(args)
+config['gpu_id'] = args.gpu_id
 
 base_net, weight, _ = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
@@ -575,6 +576,5 @@ for i in range(len(list)):
     data_mod.append(data[1])
     data_mod.append(data[2])
     data_mod.append(data[3])
-
-    # with open(list[i]+'d', 'wb') as f:
-    #     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+    with open(list[i], 'wb') as f:
+        pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
