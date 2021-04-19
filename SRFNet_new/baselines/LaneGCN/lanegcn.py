@@ -69,12 +69,12 @@ class Net(nn.Module):
         ctrs = [mask[7, 0, : int(vehicle_per_batch[i + 1]), :2, 0, 0] for i in range(batch_num)]
 
         # construct actor feature
-        actors, actor_idcs = actor_gather(gpu(feats, config['gpu_id']))
-        actor_ctrs = gpu(ctrs, config['gpu_id'])
+        actors, actor_idcs = actor_gather(gpu(feats, self.config['gpu_id']))
+        actor_ctrs = gpu(ctrs, self.config['gpu_id'])
         actors = self.actor_net(actors)
 
         # construct map features
-        graph = graph_gather(to_long(gpu(data[2], config['gpu_id'])))
+        graph = graph_gather(to_long(gpu(data[2], self.config['gpu_id'])))
         nodes, node_idcs, node_ctrs = self.map_net(graph)
 
         # actor-map fusion cycle 
