@@ -66,7 +66,7 @@ opt = model.Optimizer(net.parameters(), config)
 pred_model = net.cuda()
 model = net.cuda(config['gpu_id'])
 
-dataset = SRF_data_loader(config, train=False)
+dataset = SRF_data_loader(config, train=True)
 train_loader = DataLoader(
     dataset,
     batch_size=config["batch_size"],
