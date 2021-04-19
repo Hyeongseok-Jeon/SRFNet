@@ -549,7 +549,7 @@ parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 
 root_dir = os.getcwd()
-data_dir = os.path.join(root_dir, 'SRFNet_new', 'dataset', 'preprocess_GAN', 'val')
+data_dir = os.path.join(root_dir, 'SRFNet_new', 'dataset', 'preprocess_GAN', 'train')
 list = glob.glob(data_dir + '/*pickle')
 config = get_config(args)
 config['gpu_id'] = args.gpu_id
