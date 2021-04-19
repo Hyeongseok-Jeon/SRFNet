@@ -1,17 +1,17 @@
 import torch.nn as nn
-import model_ego_wrapper_supervised as model
-from model_ego_wrapper_supervised import Loss, PostProcess
-from get_config import get_config
+import SRFNet_new.model_ego_wrapper_supervised as model
+from SRFNet_new.model_ego_wrapper_supervised import Loss, PostProcess
+from SRFNet_new.get_config import get_config
 import argparse
-from SRF_data_loader import SRF_data_loader, collate_fn
+from SRFNet_new.SRF_data_loader import SRF_data_loader, collate_fn
 from torch.utils.data import DataLoader
-from baselines.LaneGCN import lanegcn
+from SRFNet_new.baselines.LaneGCN import lanegcn
 import torch
 import os
 import time
 from tqdm import tqdm
 import sys
-from utils import Logger, load_pretrain
+from SRFNet_new.utils import Logger, load_pretrain
 import shutil
 
 
@@ -52,16 +52,17 @@ parser.add_argument("--port", default=52162)
 args = parser.parse_args()
 config = get_config(args)
 
-base_net, weight, opt = lanegcn.get_model(config)
+base_net, weight, _ = lanegcn.get_model(config)
 root_path = os.path.join(os.path.abspath(os.curdir))
 pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
 pretrained_dict = pre_trained_weight['state_dict']
 base_net.load_state_dict(pretrained_dict)
 
 net = model.model_class(config, args, base_net)
-model = net.cuda()
+opt = model.Optimizer(net.parameters(), config)
+pred_model = net.cuda()
 
-dataset = SRF_data_loader(config, train=True)
+dataset = SRF_data_loader(config, train=False)
 train_loader = DataLoader(
     dataset,
     batch_size=config["batch_size"],
@@ -80,9 +81,9 @@ val_loader = DataLoader(
     shuffle=True,
     collate_fn=collate_fn,
 )
-l1loss = nn.SmoothL1Loss()
-loss_logging = Loss(config)
-post_process = PostProcess(config)
+l1loss = nn.SmoothL1Loss().cuda()
+loss_logging = Loss(config).cuda()
+post_process = PostProcess(config).cuda()
 os.makedirs(config['save_dir'], exist_ok=True)
 
 log = os.path.join(config['save_dir'], "log")
@@ -104,9 +105,14 @@ start_time = time.time()
 for epoch in range(config["num_epochs"]):
     metrics = dict()
     for i, data in tqdm(enumerate(train_loader)):
+        print(time.time()-start_time)
         with torch.no_grad():
             actors, actors_idcs = base_net(data)
-        outputs = model(data[0], data[1], actors, actors_idcs)
+        print(time.time() - start_time)
+
+        outputs = pred_model(data[0], data[1], actors, actors_idcs)
+        print(time.time()-start_time)
+
         batch_num = data[0].shape[0]
         vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
         gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
@@ -127,21 +133,24 @@ for epoch in range(config["num_epochs"]):
             post_process.append(metrics, loss_out, post_out)
             dt = time.time() - start_time
             post_process.display(metrics, dt, epoch, 0.001)
+        print(time.time()-start_time)
 
         opt.zero_grad()
         loss.backward()
         opt.step(epoch)
+        print(time.time()-start_time)
 
         loss_out = loss_logging(output_reform[0], data)
         post_out = post_process(output_reform[0], data)
         post_process.append(metrics, loss_out, post_out)
+        start_time = time.time()
 
     if epoch % 2 == 1:
         metrics = dict()
         for i, data in tqdm(enumerate(val_loader)):
             with torch.no_grad():
                 actors, actors_idcs = base_net(data)
-                outputs = model(data[0], data[1], actors, actors_idcs)
+                outputs = pred_model(data[0], data[1], actors, actors_idcs)
                 batch_num = data[0].shape[0]
                 vehicle_per_batch = data[0][:, 11, 0, 0, 0, 0]
                 gt_preds = [data[0][i, 1, :int(vehicle_per_batch[i]), :30, :2, 0] for i in range(batch_num)]
