@@ -65,9 +65,9 @@ def gpu(data, gpu_id):
     `data` can be dict, list or tuple
     """
     if isinstance(data, list) or isinstance(data, tuple):
-        data = [gpu(x) for x in data]
+        data = [gpu(x, gpu_id) for x in data]
     elif isinstance(data, dict):
-        data = {key:gpu(_data) for key,_data in data.items()}
+        data = {key:gpu(_data, gpu_id) for key,_data in data.items()}
     elif isinstance(data, torch.Tensor):
         data = data.contiguous().cuda(gpu_id, non_blocking=True)
     return data
