@@ -58,9 +58,10 @@ root_path = os.path.join(os.path.abspath(os.curdir))
 pre_trained_weight = torch.load(os.path.join(root_path, "LaneGCN/pre_trained") + '/36.000.ckpt')
 pretrained_dict = pre_trained_weight['state_dict']
 base_net.load_state_dict(pretrained_dict)
+base_net = base_net.cuda(config['gpu_id'])
 
 net = model.model_class(config, args, base_net)
-model = net.cuda(args.gpu_id)
+model = net.cuda(config['gpu_id'])
 
 dataset = SRF_data_loader(config, train=True)
 train_loader = DataLoader(
